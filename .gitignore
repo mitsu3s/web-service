@@ -61,8 +61,8 @@ go.work.sum
 # https://help.github.com/articles/ignoring-files
 
 # dependencies
-/web/node_modules
-/.pnp
+node_modules
+.pnp
 .pnp.*
 .yarn/*
 !.yarn/patches
@@ -71,14 +71,14 @@ go.work.sum
 !.yarn/versions
 
 # testing
-/web/coverage
+coverage
 
 # next.js
-/web/.next/
-/web/out/
+.next/
+out/
 
 # production
-/web/build
+build
 
 # misc
 .DS_Store
@@ -94,7 +94,7 @@ yarn-error.log*
 .env*
 
 # vercel
-/web/.vercel
+.vercel
 
 # typescript
 *.tsbuildinfo
