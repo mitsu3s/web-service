@@ -1,0 +1,45 @@
+name: ArgoCD Sync
+
+# Manually trigger a sync of all ArgoCD applications
+# Useful when automated sync is disabled or you want immediate deployment
+on:
+  workflow_dispatch:
+    inputs:
+      app:
+        description: "ArgoCD app to sync (leave empty for all)"
+        required: false
+        default: ""
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install ArgoCD CLI
+        run: |
+          curl -sSL -o /usr/local/bin/argocd \
+            https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
+          chmod +x /usr/local/bin/argocd
+
+      - name: Login to ArgoCD
+        env:
+          ARGOCD_SERVER: ${{ secrets.ARGOCD_SERVER }}
+          ARGOCD_AUTH_TOKEN: ${{ secrets.ARGOCD_AUTH_TOKEN }}
+        run: |
+          argocd login "${ARGOCD_SERVER}" \
+            --auth-token "${ARGOCD_AUTH_TOKEN}" \
+            --insecure
+
+      - name: Sync application(s)
+        env:
+          ARGOCD_SERVER: ${{ secrets.ARGOCD_SERVER }}
+          ARGOCD_AUTH_TOKEN: ${{ secrets.ARGOCD_AUTH_TOKEN }}
+          APP: ${{ github.event.inputs.app }}
+        run: |
+          if [ -n "${APP}" ]; then
+            argocd app sync "${APP}" --timeout 120
+          else
+            for app in api-gateway auth-service task-service notification-service frontend istio-config; do
+              echo "Syncing ${app}..."
+              argocd app sync "${app}" --timeout 120 || true
+            done
+          fi
