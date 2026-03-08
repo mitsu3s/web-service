@@ -1,0 +1,170 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ${{ github.repository_owner }}/devboard
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1. Test Go services
+  # ---------------------------------------------------------------------------
+  test-go:
+    name: Test (${{ matrix.service }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [api-gateway, auth-service, task-service, notification-service]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache-dependency-path: services/${{ matrix.service }}/go.sum
+
+      - name: Run go mod tidy check
+        working-directory: services/${{ matrix.service }}
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum || (echo "go.mod/go.sum out of sync, run go mod tidy" && exit 1)
+
+      - name: Run tests
+        working-directory: services/${{ matrix.service }}
+        run: go test ./... -v -race -coverprofile=coverage.out
+
+      - name: Run go vet
+        working-directory: services/${{ matrix.service }}
+        run: go vet ./...
+
+  # ---------------------------------------------------------------------------
+  # 2. Test frontend
+  # ---------------------------------------------------------------------------
+  test-frontend:
+    name: Test (frontend)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: services/frontend/package-lock.json
+      - name: Install deps
+        working-directory: services/frontend
+        run: npm ci
+      - name: Type check
+        working-directory: services/frontend
+        run: npx tsc --noEmit
+      - name: Lint
+        working-directory: services/frontend
+        run: npx next lint --max-warnings 0 || true  # non-blocking for learning
+
+  # ---------------------------------------------------------------------------
+  # 3. Build & push Docker images (only on main branch)
+  # ---------------------------------------------------------------------------
+  build-go:
+    name: Build (${{ matrix.service }})
+    needs: test-go
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        service: [api-gateway, auth-service, task-service, notification-service]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: services/${{ matrix.service }}
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-${{ matrix.service }}:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-${{ matrix.service }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  build-frontend:
+    name: Build (frontend)
+    needs: test-frontend
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: services/frontend
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-frontend:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-frontend:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ---------------------------------------------------------------------------
+  # 4. Update Helm values with new image tags → triggers ArgoCD sync
+  # ---------------------------------------------------------------------------
+  update-image-tags:
+    name: Update image tags in Helm charts
+    needs: [build-go, build-frontend]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq \
+            https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Update image tags
+        run: |
+          SHA="${{ github.sha }}"
+          for service in api-gateway auth-service task-service notification-service frontend; do
+            yq e ".image.tag = \"${SHA}\"" -i "helm/${service}/values.yaml"
+            echo "Updated helm/${service}/values.yaml → image.tag: ${SHA}"
+          done
+
+      - name: Commit and push
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add helm/*/values.yaml
+          git diff --cached --quiet || git commit -m "ci: bump image tags to ${GITHUB_SHA::8}"
+          git push
