@@ -1,17 +1,13 @@
 replicaCount: 1
-
 image:
   repository: ghcr.io/mitsu3s/devboard-notification-service
   pullPolicy: IfNotPresent
-  tag: "latest"
-
+  tag: "215d09be6f35051a5b06d00d110f226434a324eb"
 service:
   type: ClusterIP
   port: 8080
-
 env:
   REDIS_ADDR: "redis:6379"
-
 resources:
   requests:
     cpu: 50m
@@ -19,13 +15,11 @@ resources:
   limits:
     cpu: 200m
     memory: 128Mi
-
 autoscaling:
   enabled: false
   minReplicas: 1
   maxReplicas: 3
   targetCPUUtilizationPercentage: 70
-
 serviceMonitor:
   enabled: true
   interval: 15s

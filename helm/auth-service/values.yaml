@@ -1,18 +1,14 @@
 replicaCount: 1
-
 image:
   repository: ghcr.io/mitsu3s/devboard-auth-service
   pullPolicy: IfNotPresent
-  tag: "latest"
-
+  tag: "215d09be6f35051a5b06d00d110f226434a324eb"
 service:
   type: ClusterIP
   port: 8080
-
 env:
   JWT_SECRET: "change-me-in-production"
   MYSQL_DSN: "devboard:devboard123@tcp(mysql:3306)/devboard?charset=utf8mb4&parseTime=True&loc=Local"
-
 resources:
   requests:
     cpu: 50m
@@ -20,13 +16,11 @@ resources:
   limits:
     cpu: 200m
     memory: 256Mi
-
 autoscaling:
   enabled: false
   minReplicas: 1
   maxReplicas: 3
   targetCPUUtilizationPercentage: 70
-
 serviceMonitor:
   enabled: true
   interval: 15s
