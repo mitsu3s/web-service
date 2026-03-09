@@ -1,0 +1,6 @@
+apiVersion: v2
+name: auth-service
+description: DevBoard Auth Service - user registration, login, JWT issuance
+type: application
+version: 0.1.0
+appVersion: "latest"
