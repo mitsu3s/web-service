@@ -3,8 +3,14 @@ name: CI
 on:
   push:
     branches: [main]
+    paths:
+      - "services/**"
+      - ".github/workflows/ci.yaml"
   pull_request:
     branches: [main]
+    paths:
+      - "services/**"
+      - ".github/workflows/ci.yaml"
 
 env:
   REGISTRY: ghcr.io
@@ -12,15 +18,86 @@ env:
 
 jobs:
   # ---------------------------------------------------------------------------
+  # 0. Detect changed services
+  # ---------------------------------------------------------------------------
+  detect-changes:
+    name: Detect changed services
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      go_services: ${{ steps.matrix.outputs.go_services }}
+      frontend_changed: ${{ steps.filter.outputs.frontend }}
+      image_services: ${{ steps.matrix.outputs.image_services }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            api_gateway:
+              - "services/api-gateway/**"
+            auth_service:
+              - "services/auth-service/**"
+            task_service:
+              - "services/task-service/**"
+            notification_service:
+              - "services/notification-service/**"
+            frontend:
+              - "services/frontend/**"
+
+      - id: matrix
+        name: Build matrices
+        run: |
+          go_services=()
+          image_services=()
+
+          if [ "${{ steps.filter.outputs.api_gateway }}" = "true" ]; then
+            go_services+=("api-gateway")
+            image_services+=("api-gateway")
+          fi
+          if [ "${{ steps.filter.outputs.auth_service }}" = "true" ]; then
+            go_services+=("auth-service")
+            image_services+=("auth-service")
+          fi
+          if [ "${{ steps.filter.outputs.task_service }}" = "true" ]; then
+            go_services+=("task-service")
+            image_services+=("task-service")
+          fi
+          if [ "${{ steps.filter.outputs.notification_service }}" = "true" ]; then
+            go_services+=("notification-service")
+            image_services+=("notification-service")
+          fi
+          if [ "${{ steps.filter.outputs.frontend }}" = "true" ]; then
+            image_services+=("frontend")
+          fi
+
+          if [ ${#go_services[@]} -eq 0 ]; then
+            echo "go_services=[]" >> "${GITHUB_OUTPUT}"
+          else
+            echo "go_services=$(printf '%s\n' "${go_services[@]}" | jq -R . | jq -sc .)" >> "${GITHUB_OUTPUT}"
+          fi
+
+          if [ ${#image_services[@]} -eq 0 ]; then
+            echo "image_services=[]" >> "${GITHUB_OUTPUT}"
+          else
+            echo "image_services=$(printf '%s\n' "${image_services[@]}" | jq -R . | jq -sc .)" >> "${GITHUB_OUTPUT}"
+          fi
+
+  # ---------------------------------------------------------------------------
   # 1. Test Go services
   # ---------------------------------------------------------------------------
   test-go:
     name: Test (${{ matrix.service }})
+    needs: detect-changes
     runs-on: ubuntu-latest
+    if: needs.detect-changes.outputs.go_services != '[]'
     strategy:
       fail-fast: false
       matrix:
-        service: [api-gateway, auth-service, task-service, notification-service]
+        service: ${{ fromJSON(needs.detect-changes.outputs.go_services) }}
     steps:
       - uses: actions/checkout@v4
 
@@ -48,7 +125,9 @@ jobs:
   # ---------------------------------------------------------------------------
   test-frontend:
     name: Test (frontend)
+    needs: detect-changes
     runs-on: ubuntu-latest
+    if: needs.detect-changes.outputs.frontend_changed == 'true'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -71,15 +150,15 @@ jobs:
   # ---------------------------------------------------------------------------
   build-go:
     name: Build (${{ matrix.service }})
-    needs: test-go
+    needs: [detect-changes, test-go]
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && needs.detect-changes.outputs.go_services != '[]'
     permissions:
       contents: read
       packages: write
     strategy:
       matrix:
-        service: [api-gateway, auth-service, task-service, notification-service]
+        service: ${{ fromJSON(needs.detect-changes.outputs.go_services) }}
     steps:
       - uses: actions/checkout@v4
 
@@ -106,9 +185,9 @@ jobs:
 
   build-frontend:
     name: Build (frontend)
-    needs: test-frontend
+    needs: [detect-changes, test-frontend]
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && needs.detect-changes.outputs.frontend_changed == 'true'
     permissions:
       contents: read
       packages: write
@@ -137,9 +216,13 @@ jobs:
   # ---------------------------------------------------------------------------
   update-image-tags:
     name: Update image tags in Helm charts
-    needs: [build-go, build-frontend]
+    needs: [detect-changes, build-go, build-frontend]
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
+    if: |
+      github.ref == 'refs/heads/main' &&
+      needs.detect-changes.outputs.image_services != '[]' &&
+      (needs.detect-changes.outputs.go_services == '[]' || needs.build-go.result == 'success') &&
+      (needs.detect-changes.outputs.frontend_changed != 'true' || needs.build-frontend.result == 'success')
     permissions:
       contents: write
     steps:
@@ -156,7 +239,7 @@ jobs:
       - name: Update image tags
         run: |
           SHA="${{ github.sha }}"
-          for service in api-gateway auth-service task-service notification-service frontend; do
+          for service in $(echo '${{ needs.detect-changes.outputs.image_services }}' | jq -r '.[]'); do
             yq e ".image.tag = \"${SHA}\"" -i "helm/${service}/values.yaml"
             echo "Updated helm/${service}/values.yaml → image.tag: ${SHA}"
           done
