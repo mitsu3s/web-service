@@ -6,7 +6,7 @@ metadata:
 spec:
   selector:
     # Routes traffic through the Istio ingress gateway pod
-    istio: ingressgateway
+    istio: ingress
   servers:
     - port:
         number: 80
