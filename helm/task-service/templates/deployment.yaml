@@ -19,6 +19,9 @@ spec:
         prometheus.io/path: "/metrics"
     spec:
       serviceAccountName: {{ include "task-service.serviceAccountName" . }}
+      securityContext:
+        runAsUser: 1000
+        runAsNonRoot: true
       containers:
         - name: {{ .Chart.Name }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
