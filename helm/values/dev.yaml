@@ -1,0 +1,18 @@
+# Development overrides – applied on top of each chart's values.yaml
+# Usage: helm upgrade --install <release> helm/<chart> -f helm/values/dev.yaml
+
+replicaCount: 1
+
+image:
+  pullPolicy: Always  # always pull latest in dev
+
+autoscaling:
+  enabled: false
+
+resources:
+  requests:
+    cpu: 25m
+    memory: 32Mi
+  limits:
+    cpu: 200m
+    memory: 256Mi

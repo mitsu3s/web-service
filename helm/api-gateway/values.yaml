@@ -1,0 +1,35 @@
+replicaCount: 1
+
+image:
+  repository: ghcr.io/mitsu3s/devboard-api-gateway
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+service:
+  type: ClusterIP
+  port: 8080
+
+env:
+  JWT_SECRET: "change-me-in-production"
+  AUTH_SERVICE_URL: "http://auth-service:8080"
+  TASK_SERVICE_URL: "http://task-service:8080"
+  NOTIFICATION_SERVICE_URL: "http://notification-service:8080"
+  FRONTEND_URL: "http://frontend:3000"
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 32Mi
+  limits:
+    cpu: 200m
+    memory: 128Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 70
+
+serviceMonitor:
+  enabled: true
+  interval: 15s

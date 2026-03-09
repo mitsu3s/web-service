@@ -1,0 +1,26 @@
+apiVersion: networking.istio.io/v1beta1
+kind: Gateway
+metadata:
+  name: devboard-gateway
+  namespace: devboard
+spec:
+  selector:
+    # Routes traffic through the Istio ingress gateway pod
+    istio: ingressgateway
+  servers:
+    - port:
+        number: 80
+        name: http
+        protocol: HTTP
+      hosts:
+        - "*"
+    # TLS (enable after cert-manager setup)
+    # - port:
+    #     number: 443
+    #     name: https
+    #     protocol: HTTPS
+    #   tls:
+    #     mode: SIMPLE
+    #     credentialName: devboard-tls
+    #   hosts:
+    #     - "devboard.local"
