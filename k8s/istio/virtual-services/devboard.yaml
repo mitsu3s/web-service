@@ -9,7 +9,17 @@ spec:
   gateways:
     - devboard-gateway
   http:
-    # All traffic goes to api-gateway which internally routes to microservices
+    # SSE (Server-Sent Events) – no timeout, no retries
+    - match:
+        - uri:
+            prefix: /api/notifications/
+      route:
+        - destination:
+            host: api-gateway
+            port:
+              number: 8080
+
+    # All other traffic
     - match:
         - uri:
             prefix: /
