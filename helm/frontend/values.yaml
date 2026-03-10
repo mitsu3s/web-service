@@ -2,7 +2,7 @@ replicaCount: 1
 image:
   repository: ghcr.io/mitsu3s/devboard-frontend
   pullPolicy: IfNotPresent
-  tag: "99137ee45e2619930b757b8b06f2717d6551988d"
+  tag: "4db28a4c65f79a8a4a5a8b95cc9542d31667f744"
 service:
   type: ClusterIP
   port: 3000
