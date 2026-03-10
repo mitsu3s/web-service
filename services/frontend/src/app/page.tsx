@@ -104,8 +104,9 @@ function TaskBoard({ token, onLogout }: { token: string; onLogout: () => void })
   }, [fetchTasks]);
 
   // SSE for real-time notifications
+  // EventSource cannot send custom headers, so pass JWT as query param
   useEffect(() => {
-    const es = new EventSource(`${API}/notifications/events`, {});
+    const es = new EventSource(`${API}/notifications/events?token=${encodeURIComponent(token)}`);
     es.addEventListener("task-event", (e) => {
       const data = JSON.parse(e.data);
       setNotification(`Event: ${data.event}`);

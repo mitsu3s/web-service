@@ -94,6 +94,31 @@ func withJWT(next http.Handler) http.Handler {
 	})
 }
 
+// withJWTOrQuery is like withJWT but also accepts token via query param.
+// EventSource (SSE) in browsers cannot set custom headers, so the token
+// must be passed as ?token=<jwt> instead of Authorization: Bearer.
+func withJWTOrQuery(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		tokenStr := ""
+		if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer ") {
+			tokenStr = strings.TrimPrefix(auth, "Bearer ")
+		} else {
+			tokenStr = r.URL.Query().Get("token")
+		}
+		if tokenStr == "" {
+			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+			return
+		}
+		userID, ok := validateJWT(tokenStr)
+		if !ok {
+			http.Error(w, `{"error":"invalid token"}`, http.StatusUnauthorized)
+			return
+		}
+		r.Header.Set("X-User-ID", fmt.Sprintf("%d", userID))
+		next.ServeHTTP(w, r)
+	})
+}
+
 func stripPrefix(prefix string, h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r2 := r.Clone(r.Context())
@@ -141,11 +166,13 @@ func main() {
 	mux.Handle("/api/auth/", stripPrefix("/api/auth", authProxy))
 
 	// Tasks: JWT required
-	mux.Handle("/api/tasks", withJWT(stripPrefix("/api/tasks", taskProxy)))
-	mux.Handle("/api/tasks/", withJWT(stripPrefix("/api/tasks", taskProxy)))
+	// Strip "/api" only so task-service receives "/tasks" and "/tasks/{id}"
+	mux.Handle("/api/tasks", withJWT(stripPrefix("/api", taskProxy)))
+	mux.Handle("/api/tasks/", withJWT(stripPrefix("/api", taskProxy)))
 
 	// Notifications: JWT required (SSE)
-	mux.Handle("/api/notifications/", withJWT(stripPrefix("/api/notifications", notifProxy)))
+	// EventSource cannot send custom headers, so accept token via query param too
+	mux.Handle("/api/notifications/", withJWTOrQuery(stripPrefix("/api/notifications", notifProxy)))
 
 	// Frontend passthrough
 	mux.Handle("/", frontendProxy)
