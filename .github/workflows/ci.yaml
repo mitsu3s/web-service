@@ -22,7 +22,7 @@ jobs:
   # ---------------------------------------------------------------------------
   detect-changes:
     name: Detect changed services
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     permissions:
       contents: read
       pull-requests: read
@@ -54,6 +54,20 @@ jobs:
           go_services=()
           image_services=()
 
+          json_array() {
+            if [ "$#" -eq 0 ]; then
+              printf '[]'
+              return
+            fi
+
+            json="["
+            for item in "$@"; do
+              json="${json}\"${item}\","
+            done
+            json="${json%,}]"
+            printf '%s' "${json}"
+          }
+
           if [ "${{ steps.filter.outputs.api_gateway }}" = "true" ]; then
             go_services+=("api-gateway")
             image_services+=("api-gateway")
@@ -74,17 +88,8 @@ jobs:
             image_services+=("frontend")
           fi
 
-          if [ ${#go_services[@]} -eq 0 ]; then
-            echo "go_services=[]" >> "${GITHUB_OUTPUT}"
-          else
-            echo "go_services=$(printf '%s\n' "${go_services[@]}" | jq -R . | jq -sc .)" >> "${GITHUB_OUTPUT}"
-          fi
-
-          if [ ${#image_services[@]} -eq 0 ]; then
-            echo "image_services=[]" >> "${GITHUB_OUTPUT}"
-          else
-            echo "image_services=$(printf '%s\n' "${image_services[@]}" | jq -R . | jq -sc .)" >> "${GITHUB_OUTPUT}"
-          fi
+          echo "go_services=$(json_array "${go_services[@]}")" >> "${GITHUB_OUTPUT}"
+          echo "image_services=$(json_array "${image_services[@]}")" >> "${GITHUB_OUTPUT}"
 
   # ---------------------------------------------------------------------------
   # 1. Test Go services
@@ -92,7 +97,7 @@ jobs:
   test-go:
     name: Test (${{ matrix.service }})
     needs: detect-changes
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     if: needs.detect-changes.outputs.go_services != '[]'
     strategy:
       fail-fast: false
@@ -126,7 +131,7 @@ jobs:
   test-frontend:
     name: Test (frontend)
     needs: detect-changes
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     if: needs.detect-changes.outputs.frontend_changed == 'true'
     steps:
       - uses: actions/checkout@v4
@@ -151,7 +156,7 @@ jobs:
   build-go:
     name: Build (${{ matrix.service }})
     needs: [detect-changes, test-go]
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     if: github.ref == 'refs/heads/main' && needs.detect-changes.outputs.go_services != '[]'
     permissions:
       contents: read
@@ -161,6 +166,9 @@ jobs:
         service: ${{ fromJSON(needs.detect-changes.outputs.go_services) }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -176,6 +184,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: services/${{ matrix.service }}
+          platforms: linux/amd64
           push: true
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-${{ matrix.service }}:${{ github.sha }}
@@ -186,13 +195,15 @@ jobs:
   build-frontend:
     name: Build (frontend)
     needs: [detect-changes, test-frontend]
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     if: github.ref == 'refs/heads/main' && needs.detect-changes.outputs.frontend_changed == 'true'
     permissions:
       contents: read
       packages: write
     steps:
       - uses: actions/checkout@v4
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -204,6 +215,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: services/frontend
+          platforms: linux/amd64
           push: true
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-frontend:${{ github.sha }}
@@ -217,7 +229,7 @@ jobs:
   update-image-tags:
     name: Update image tags in Helm charts
     needs: [detect-changes, build-go, build-frontend]
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     if: |
       github.ref == 'refs/heads/main' &&
       needs.detect-changes.outputs.image_services != '[]' &&
@@ -231,17 +243,33 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install yq
+        env:
+          RUNNER_ARCH: ${{ runner.arch }}
         run: |
-          sudo wget -qO /usr/local/bin/yq \
-            https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
-          sudo chmod +x /usr/local/bin/yq
+          case "${RUNNER_ARCH}" in
+            X64) YQ_ARCH="amd64" ;;
+            ARM64) YQ_ARCH="arm64" ;;
+            ARM) YQ_ARCH="arm" ;;
+            *)
+              echo "Unsupported runner arch: ${RUNNER_ARCH}"
+              exit 1
+              ;;
+          esac
+
+          YQ_BIN="${RUNNER_TEMP}/yq"
+          curl -fsSL -o "${YQ_BIN}" \
+            "https://github.com/mikefarah/yq/releases/latest/download/yq_linux_${YQ_ARCH}"
+          chmod +x "${YQ_BIN}"
+          echo "${RUNNER_TEMP}" >> "${GITHUB_PATH}"
 
       - name: Update image tags
+        env:
+          IMAGE_SERVICES: ${{ join(fromJSON(needs.detect-changes.outputs.image_services), ' ') }}
         run: |
           SHA="${{ github.sha }}"
-          for service in $(echo '${{ needs.detect-changes.outputs.image_services }}' | jq -r '.[]'); do
+          for service in ${IMAGE_SERVICES}; do
             yq e ".image.tag = \"${SHA}\"" -i "helm/${service}/values.yaml"
-            echo "Updated helm/${service}/values.yaml → image.tag: ${SHA}"
+            echo "Updated helm/${service}/values.yaml -> image.tag: ${SHA}"
           done
 
       - name: Commit and push
