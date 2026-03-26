@@ -108,7 +108,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.22"
+          go-version: "1.25"
           cache-dependency-path: services/${{ matrix.service }}/go.sum
 
       - name: Run go mod tidy check
@@ -137,7 +137,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
           cache: npm
           cache-dependency-path: services/frontend/package-lock.json
       - name: Install deps
