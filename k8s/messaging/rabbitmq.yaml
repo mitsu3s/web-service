@@ -87,24 +87,30 @@ spec:
                 secretKeyRef:
                   name: rabbitmq-auth
                   key: erlang-cookie
-          livenessProbe:
-            exec:
-              command: ["rabbitmq-diagnostics", "-q", "check_running"]
-            initialDelaySeconds: 30
-            periodSeconds: 15
-            timeoutSeconds: 5
-          readinessProbe:
-            exec:
-              command: ["rabbitmq-diagnostics", "-q", "ping"]
-            initialDelaySeconds: 10
+          startupProbe:
+            tcpSocket:
+              port: amqp
             periodSeconds: 10
-            timeoutSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
+          livenessProbe:
+            tcpSocket:
+              port: amqp
+            periodSeconds: 30
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            tcpSocket:
+              port: amqp
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 6
           resources:
             requests:
-              cpu: 100m
+              cpu: 250m
               memory: 256Mi
             limits:
-              cpu: 500m
+              cpu: "1"
               memory: 512Mi
           volumeMounts:
             - name: rabbitmq-data
