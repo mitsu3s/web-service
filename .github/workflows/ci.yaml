@@ -137,6 +137,26 @@ jobs:
         with:
           version: v3.9.4
 
+      - name: Install yq
+        env:
+          RUNNER_ARCH: ${{ runner.arch }}
+        run: |
+          case "${RUNNER_ARCH}" in
+            X64) YQ_ARCH="amd64" ;;
+            ARM64) YQ_ARCH="arm64" ;;
+            ARM) YQ_ARCH="arm" ;;
+            *)
+              echo "Unsupported runner arch: ${RUNNER_ARCH}"
+              exit 1
+              ;;
+          esac
+
+          YQ_BIN="${RUNNER_TEMP}/yq"
+          curl -fsSL -o "${YQ_BIN}" \
+            "https://github.com/mikefarah/yq/releases/latest/download/yq_linux_${YQ_ARCH}"
+          chmod +x "${YQ_BIN}"
+          echo "${RUNNER_TEMP}" >> "${GITHUB_PATH}"
+
       - name: Render all Helm charts
         run: |
           set -euo pipefail
@@ -156,15 +176,12 @@ jobs:
 
       - name: Validate raw YAML syntax
         run: |
-          ruby - <<'RUBY'
-          require "psych"
+          set -euo pipefail
+          find argocd k8s -type f -name '*.yaml' -print0 | sort -z | while IFS= read -r -d '' path; do
+            yq e '.' "${path}" >/dev/null
+          done
 
-          Dir.glob("{argocd,k8s}/**/*.yaml").sort.each do |path|
-            Psych.parse_stream(File.read(path))
-          end
-
-          puts "YAML syntax validation passed"
-          RUBY
+          echo "YAML syntax validation passed"
 
   # ---------------------------------------------------------------------------
   # 1. Test Go services
