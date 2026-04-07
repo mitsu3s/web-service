@@ -6,6 +6,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -o /search-indexer .
 
 FROM scratch
+LABEL org.opencontainers.image.description="Devboard search indexer"
 COPY --from=builder /search-indexer /search-indexer
 EXPOSE 8080
 ENTRYPOINT ["/search-indexer"]

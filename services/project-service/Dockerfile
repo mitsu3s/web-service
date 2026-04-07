@@ -6,6 +6,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -o /project-service .
 
 FROM scratch
+LABEL org.opencontainers.image.description="Devboard project service"
 COPY --from=builder /project-service /project-service
 EXPOSE 8080
 ENTRYPOINT ["/project-service"]

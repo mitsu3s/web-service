@@ -6,6 +6,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -o /task-service .
 
 FROM scratch
+LABEL org.opencontainers.image.description="Devboard task service"
 COPY --from=builder /task-service /task-service
 EXPOSE 8080
 ENTRYPOINT ["/task-service"]
