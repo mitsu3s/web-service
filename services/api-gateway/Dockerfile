@@ -6,6 +6,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -o /api-gateway .
 
 FROM scratch
+LABEL org.opencontainers.image.description="Devboard API gateway"
 COPY --from=builder /api-gateway /api-gateway
 EXPOSE 8080
 ENTRYPOINT ["/api-gateway"]

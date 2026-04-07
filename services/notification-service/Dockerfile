@@ -6,6 +6,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -o /notification-service .
 
 FROM scratch
+LABEL org.opencontainers.image.description="Devboard notification service"
 COPY --from=builder /notification-service /notification-service
 EXPOSE 8080
 ENTRYPOINT ["/notification-service"]
