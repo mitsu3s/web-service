@@ -5,12 +5,18 @@ on:
     branches: [main]
     paths:
       - "services/**"
-      - ".github/workflows/ci.yaml"
+      - "helm/**"
+      - "argocd/**"
+      - "k8s/**"
+      - ".github/workflows/**"
   pull_request:
     branches: [main]
     paths:
       - "services/**"
-      - ".github/workflows/ci.yaml"
+      - "helm/**"
+      - "argocd/**"
+      - "k8s/**"
+      - ".github/workflows/**"
 
 env:
   REGISTRY: ghcr.io
@@ -30,6 +36,7 @@ jobs:
       go_services: ${{ steps.matrix.outputs.go_services }}
       frontend_changed: ${{ steps.filter.outputs.frontend }}
       image_services: ${{ steps.matrix.outputs.image_services }}
+      manifest_changed: ${{ steps.filter.outputs.manifests }}
     steps:
       - uses: actions/checkout@v4
 
@@ -45,8 +52,19 @@ jobs:
               - "services/task-service/**"
             notification_service:
               - "services/notification-service/**"
+            project_service:
+              - "services/project-service/**"
+            activity_service:
+              - "services/activity-service/**"
+            search_indexer:
+              - "services/search-indexer/**"
             frontend:
               - "services/frontend/**"
+            manifests:
+              - "helm/**"
+              - "argocd/**"
+              - "k8s/**"
+              - ".github/workflows/**"
 
       - id: matrix
         name: Build matrices
@@ -84,12 +102,86 @@ jobs:
             go_services+=("notification-service")
             image_services+=("notification-service")
           fi
+          if [ "${{ steps.filter.outputs.project_service }}" = "true" ]; then
+            go_services+=("project-service")
+            image_services+=("project-service")
+          fi
+          if [ "${{ steps.filter.outputs.activity_service }}" = "true" ]; then
+            go_services+=("activity-service")
+            image_services+=("activity-service")
+          fi
+          if [ "${{ steps.filter.outputs.search_indexer }}" = "true" ]; then
+            go_services+=("search-indexer")
+            image_services+=("search-indexer")
+          fi
           if [ "${{ steps.filter.outputs.frontend }}" = "true" ]; then
             image_services+=("frontend")
           fi
 
           echo "go_services=$(json_array "${go_services[@]}")" >> "${GITHUB_OUTPUT}"
           echo "image_services=$(json_array "${image_services[@]}")" >> "${GITHUB_OUTPUT}"
+
+  validate-manifests:
+    name: Validate Manifests
+    needs: detect-changes
+    runs-on: self-hosted
+    if: |
+      needs.detect-changes.outputs.manifest_changed == 'true' ||
+      needs.detect-changes.outputs.go_services != '[]' ||
+      needs.detect-changes.outputs.frontend_changed == 'true'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.9.4
+
+      - name: Install yq
+        env:
+          RUNNER_ARCH: ${{ runner.arch }}
+        run: |
+          case "${RUNNER_ARCH}" in
+            X64) YQ_ARCH="amd64" ;;
+            ARM64) YQ_ARCH="arm64" ;;
+            ARM) YQ_ARCH="arm" ;;
+            *)
+              echo "Unsupported runner arch: ${RUNNER_ARCH}"
+              exit 1
+              ;;
+          esac
+
+          YQ_BIN="${RUNNER_TEMP}/yq"
+          curl -fsSL -o "${YQ_BIN}" \
+            "https://github.com/mikefarah/yq/releases/latest/download/yq_linux_${YQ_ARCH}"
+          chmod +x "${YQ_BIN}"
+          echo "${RUNNER_TEMP}" >> "${GITHUB_PATH}"
+
+      - name: Render all Helm charts
+        run: |
+          set -euo pipefail
+          for chart in \
+            helm/api-gateway \
+            helm/auth-service \
+            helm/task-service \
+            helm/notification-service \
+            helm/project-service \
+            helm/activity-service \
+            helm/search-indexer \
+            helm/frontend; do
+            chart_name="$(basename "${chart}")"
+            helm lint "${chart}"
+            helm template "${chart_name}" "${chart}" >/dev/null
+          done
+
+      - name: Validate raw YAML syntax
+        run: |
+          set -euo pipefail
+          find argocd k8s -type f -name '*.yaml' -print0 | sort -z | while IFS= read -r -d '' path; do
+            yq e '.' "${path}" >/dev/null
+          done
+
+          echo "YAML syntax validation passed"
 
   # ---------------------------------------------------------------------------
   # 1. Test Go services
@@ -226,11 +318,12 @@ jobs:
   # ---------------------------------------------------------------------------
   update-image-tags:
     name: Update image tags in Helm charts
-    needs: [detect-changes, build-go, build-frontend]
+    needs: [detect-changes, validate-manifests, build-go, build-frontend]
     runs-on: self-hosted
     if: |
       github.ref == 'refs/heads/main' &&
       needs.detect-changes.outputs.image_services != '[]' &&
+      needs.validate-manifests.result == 'success' &&
       (needs.detect-changes.outputs.go_services == '[]' || needs.build-go.result == 'success') &&
       (needs.detect-changes.outputs.frontend_changed != 'true' || needs.build-frontend.result == 'success')
     permissions:
