@@ -82,6 +82,7 @@ build
 
 # misc
 .DS_Store
+.cache/
 *.pem
 
 # debug
