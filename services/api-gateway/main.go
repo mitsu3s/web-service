@@ -157,6 +157,8 @@ func withMetrics(next http.Handler) http.Handler {
 func main() {
 	authProxy := newProxy(getEnv("AUTH_SERVICE_URL", "http://auth-service:8080"))
 	taskProxy := newProxy(getEnv("TASK_SERVICE_URL", "http://task-service:8080"))
+	projectProxy := newProxy(getEnv("PROJECT_SERVICE_URL", "http://project-service:8080"))
+	activityProxy := newProxy(getEnv("ACTIVITY_SERVICE_URL", "http://activity-service:8080"))
 	notifProxy := newProxy(getEnv("NOTIFICATION_SERVICE_URL", "http://notification-service:8080"))
 	frontendProxy := newProxy(getEnv("FRONTEND_URL", "http://frontend:3000"))
 
@@ -169,6 +171,12 @@ func main() {
 	// Strip "/api" only so task-service receives "/tasks" and "/tasks/{id}"
 	mux.Handle("/api/tasks", withJWT(stripPrefix("/api", taskProxy)))
 	mux.Handle("/api/tasks/", withJWT(stripPrefix("/api", taskProxy)))
+
+	// Projects + activity: JWT required
+	mux.Handle("/api/projects", withJWT(stripPrefix("/api", projectProxy)))
+	mux.Handle("/api/projects/", withJWT(stripPrefix("/api", projectProxy)))
+	mux.Handle("/api/activity", withJWT(stripPrefix("/api", activityProxy)))
+	mux.Handle("/api/activity/", withJWT(stripPrefix("/api", activityProxy)))
 
 	// Notifications: JWT required (SSE)
 	// EventSource cannot send custom headers, so accept token via query param too
