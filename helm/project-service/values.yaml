@@ -1,0 +1,25 @@
+replicaCount: 1
+image:
+  repository: ghcr.io/mitsu3s/devboard-project-service
+  pullPolicy: IfNotPresent
+  tag: "99137ee45e2619930b757b8b06f2717d6551988d"
+service:
+  type: ClusterIP
+  port: 8080
+env:
+  MYSQL_DSN: "devboard:devboard123@tcp(mysql:3306)/devboard?charset=utf8mb4&parseTime=True&loc=Local"
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 300m
+    memory: 256Mi
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 70
+serviceMonitor:
+  enabled: true
+  interval: 15s
