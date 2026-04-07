@@ -5,12 +5,18 @@ on:
     branches: [main]
     paths:
       - "services/**"
-      - ".github/workflows/ci.yaml"
+      - "helm/**"
+      - "argocd/**"
+      - "k8s/**"
+      - ".github/workflows/**"
   pull_request:
     branches: [main]
     paths:
       - "services/**"
-      - ".github/workflows/ci.yaml"
+      - "helm/**"
+      - "argocd/**"
+      - "k8s/**"
+      - ".github/workflows/**"
 
 env:
   REGISTRY: ghcr.io
@@ -30,6 +36,7 @@ jobs:
       go_services: ${{ steps.matrix.outputs.go_services }}
       frontend_changed: ${{ steps.filter.outputs.frontend }}
       image_services: ${{ steps.matrix.outputs.image_services }}
+      manifest_changed: ${{ steps.filter.outputs.manifests }}
     steps:
       - uses: actions/checkout@v4
 
@@ -45,8 +52,19 @@ jobs:
               - "services/task-service/**"
             notification_service:
               - "services/notification-service/**"
+            project_service:
+              - "services/project-service/**"
+            activity_service:
+              - "services/activity-service/**"
+            search_indexer:
+              - "services/search-indexer/**"
             frontend:
               - "services/frontend/**"
+            manifests:
+              - "helm/**"
+              - "argocd/**"
+              - "k8s/**"
+              - ".github/workflows/**"
 
       - id: matrix
         name: Build matrices
@@ -84,12 +102,69 @@ jobs:
             go_services+=("notification-service")
             image_services+=("notification-service")
           fi
+          if [ "${{ steps.filter.outputs.project_service }}" = "true" ]; then
+            go_services+=("project-service")
+            image_services+=("project-service")
+          fi
+          if [ "${{ steps.filter.outputs.activity_service }}" = "true" ]; then
+            go_services+=("activity-service")
+            image_services+=("activity-service")
+          fi
+          if [ "${{ steps.filter.outputs.search_indexer }}" = "true" ]; then
+            go_services+=("search-indexer")
+            image_services+=("search-indexer")
+          fi
           if [ "${{ steps.filter.outputs.frontend }}" = "true" ]; then
             image_services+=("frontend")
           fi
 
           echo "go_services=$(json_array "${go_services[@]}")" >> "${GITHUB_OUTPUT}"
           echo "image_services=$(json_array "${image_services[@]}")" >> "${GITHUB_OUTPUT}"
+
+  validate-manifests:
+    name: Validate Manifests
+    needs: detect-changes
+    runs-on: self-hosted
+    if: |
+      needs.detect-changes.outputs.manifest_changed == 'true' ||
+      needs.detect-changes.outputs.go_services != '[]' ||
+      needs.detect-changes.outputs.frontend_changed == 'true'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.9.4
+
+      - name: Render all Helm charts
+        run: |
+          set -euo pipefail
+          for chart in \
+            helm/api-gateway \
+            helm/auth-service \
+            helm/task-service \
+            helm/notification-service \
+            helm/project-service \
+            helm/activity-service \
+            helm/search-indexer \
+            helm/frontend; do
+            chart_name="$(basename "${chart}")"
+            helm lint "${chart}"
+            helm template "${chart_name}" "${chart}" >/dev/null
+          done
+
+      - name: Validate raw YAML syntax
+        run: |
+          ruby - <<'RUBY'
+          require "psych"
+
+          Dir.glob("{argocd,k8s}/**/*.yaml").sort.each do |path|
+            Psych.parse_stream(File.read(path))
+          end
+
+          puts "YAML syntax validation passed"
+          RUBY
 
   # ---------------------------------------------------------------------------
   # 1. Test Go services
@@ -226,11 +301,12 @@ jobs:
   # ---------------------------------------------------------------------------
   update-image-tags:
     name: Update image tags in Helm charts
-    needs: [detect-changes, build-go, build-frontend]
+    needs: [detect-changes, validate-manifests, build-go, build-frontend]
     runs-on: self-hosted
     if: |
       github.ref == 'refs/heads/main' &&
       needs.detect-changes.outputs.image_services != '[]' &&
+      needs.validate-manifests.result == 'success' &&
       (needs.detect-changes.outputs.go_services == '[]' || needs.build-go.result == 'success') &&
       (needs.detect-changes.outputs.frontend_changed != 'true' || needs.build-frontend.result == 'success')
     permissions:
