@@ -1,6 +1,6 @@
 replicaCount: 1
 image:
-  repository: ghcr.io/mitsu3s/devboard-task-service
+  repository: ghcr.io/mitsu3s/devboard-activity-service
   pullPolicy: IfNotPresent
   tag: "99137ee45e2619930b757b8b06f2717d6551988d"
 service:
@@ -8,7 +8,6 @@ service:
   port: 8080
 env:
   MYSQL_DSN: "devboard:devboard123@tcp(mysql:3306)/devboard?charset=utf8mb4&parseTime=True&loc=Local"
-  REDIS_ADDR: "redis:6379"
   PROJECT_SERVICE_URL: "http://project-service:8080"
   RABBITMQ_URL: "amqp://devboard:devboard123@rabbitmq:5672/"
 resources:
@@ -16,12 +15,12 @@ resources:
     cpu: 50m
     memory: 64Mi
   limits:
-    cpu: 300m
-    memory: 256Mi
+    cpu: 200m
+    memory: 192Mi
 autoscaling:
   enabled: false
   minReplicas: 1
-  maxReplicas: 5
+  maxReplicas: 3
   targetCPUUtilizationPercentage: 70
 serviceMonitor:
   enabled: true

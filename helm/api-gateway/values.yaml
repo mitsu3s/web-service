@@ -10,6 +10,8 @@ env:
   JWT_SECRET: "change-me-in-production"
   AUTH_SERVICE_URL: "http://auth-service:8080"
   TASK_SERVICE_URL: "http://task-service:8080"
+  PROJECT_SERVICE_URL: "http://project-service:8080"
+  ACTIVITY_SERVICE_URL: "http://activity-service:8080"
   NOTIFICATION_SERVICE_URL: "http://notification-service:8080"
   FRONTEND_URL: "http://frontend:3000"
 resources:

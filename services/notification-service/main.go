@@ -2,19 +2,41 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"strconv"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/redis/go-redis/v9"
+	amqp "github.com/rabbitmq/amqp091-go"
 )
 
+type TaskEvent struct {
+	EventID     string    `json:"event_id"`
+	Type        string    `json:"type"`
+	TaskID      uint      `json:"task_id"`
+	ProjectID   uint      `json:"project_id"`
+	UserID      uint      `json:"user_id"`
+	Title       string    `json:"title"`
+	Description string    `json:"description"`
+	Status      string    `json:"status"`
+	OccurredAt  time.Time `json:"occurred_at"`
+}
+
+type subscriberHub struct {
+	mu    sync.RWMutex
+	users map[uint]map[chan TaskEvent]struct{}
+}
+
 var (
-	rdb *redis.Client
+	hub         = &subscriberHub{users: make(map[uint]map[chan TaskEvent]struct{})}
+	rabbitReady atomic.Bool
 
 	sseConnectionsActive = prometheus.NewGauge(prometheus.GaugeOpts{
 		Name: "sse_connections_active",
@@ -30,24 +52,129 @@ func init() {
 	prometheus.MustRegister(sseConnectionsActive, sseEventsDelivered)
 }
 
-func initRedis() {
-	addr := os.Getenv("REDIS_ADDR")
-	if addr == "" {
-		addr = "redis-master:6379"
+func (h *subscriberHub) subscribe(userID uint) chan TaskEvent {
+	ch := make(chan TaskEvent, 16)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if h.users[userID] == nil {
+		h.users[userID] = make(map[chan TaskEvent]struct{})
 	}
-	rdb = redis.NewClient(&redis.Options{Addr: addr})
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := rdb.Ping(ctx).Err(); err != nil {
-		log.Fatalf("Redis connection failed: %v", err)
-	}
-	log.Println("Redis connected")
+	h.users[userID][ch] = struct{}{}
+	return ch
 }
 
-// GET /events  — Server-Sent Events endpoint
-// Clients subscribe here to receive real-time task update notifications.
-// The api-gateway injects X-User-ID after JWT validation.
+func (h *subscriberHub) unsubscribe(userID uint, ch chan TaskEvent) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	subs := h.users[userID]
+	if subs == nil {
+		return
+	}
+	delete(subs, ch)
+	if len(subs) == 0 {
+		delete(h.users, userID)
+	}
+	close(ch)
+}
+
+func (h *subscriberHub) broadcast(evt TaskEvent) {
+	h.mu.RLock()
+	subs := h.users[evt.UserID]
+	h.mu.RUnlock()
+
+	for ch := range subs {
+		select {
+		case ch <- evt:
+		default:
+		}
+	}
+}
+
+func getUserID(r *http.Request) (uint, bool) {
+	raw := r.Header.Get("X-User-ID")
+	if raw == "" {
+		return 0, false
+	}
+	id, err := strconv.ParseUint(raw, 10, 64)
+	if err != nil || id == 0 {
+		return 0, false
+	}
+	return uint(id), true
+}
+
+func consumeEvents(ctx context.Context, rabbitURL string) {
+	for {
+		if err := consumeOnce(ctx, rabbitURL); err != nil {
+			rabbitReady.Store(false)
+			log.Printf("rabbitmq consumer stopped: %v", err)
+		}
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(5 * time.Second):
+		}
+	}
+}
+
+func consumeOnce(ctx context.Context, rabbitURL string) error {
+	conn, err := amqp.Dial(rabbitURL)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	ch, err := conn.Channel()
+	if err != nil {
+		return err
+	}
+	defer ch.Close()
+
+	if err := ch.ExchangeDeclare("devboard.events", "topic", true, false, false, false, nil); err != nil {
+		return err
+	}
+
+	queue, err := ch.QueueDeclare("", false, true, true, false, nil)
+	if err != nil {
+		return err
+	}
+	if err := ch.QueueBind(queue.Name, "task.*", "devboard.events", false, nil); err != nil {
+		return err
+	}
+
+	deliveries, err := ch.Consume(queue.Name, "", true, true, false, false, nil)
+	if err != nil {
+		return err
+	}
+
+	rabbitReady.Store(true)
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case msg, ok := <-deliveries:
+			if !ok {
+				return fmt.Errorf("delivery channel closed")
+			}
+			var evt TaskEvent
+			if err := json.Unmarshal(msg.Body, &evt); err != nil {
+				log.Printf("failed to decode task event: %v", err)
+				continue
+			}
+			hub.broadcast(evt)
+		}
+	}
+}
+
 func eventsHandler(w http.ResponseWriter, r *http.Request) {
+	userID, ok := getUserID(r)
+	if !ok {
+		http.Error(w, `{"error":"missing user context"}`, http.StatusUnauthorized)
+		return
+	}
+
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		http.Error(w, "streaming not supported", http.StatusInternalServerError)
@@ -59,57 +186,46 @@ func eventsHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 
-	ctx, cancel := context.WithCancel(r.Context())
-	defer cancel()
-
-	sub := rdb.Subscribe(ctx, "task-events")
-	defer sub.Close()
+	ch := hub.subscribe(userID)
+	defer hub.unsubscribe(userID, ch)
 
 	sseConnectionsActive.Inc()
 	defer sseConnectionsActive.Dec()
 
-	// Initial connection acknowledgement
 	fmt.Fprintf(w, "event: connected\ndata: {\"status\":\"connected\"}\n\n")
 	flusher.Flush()
 
 	keepAlive := time.NewTicker(30 * time.Second)
 	defer keepAlive.Stop()
 
-	ch := sub.Channel()
 	for {
 		select {
-		case msg, ok := <-ch:
-			if !ok {
-				return
-			}
-			fmt.Fprintf(w, "event: task-event\ndata: %s\n\n", msg.Payload)
+		case evt := <-ch:
+			body, _ := json.Marshal(evt)
+			fmt.Fprintf(w, "event: task-event\ndata: %s\n\n", body)
 			flusher.Flush()
 			sseEventsDelivered.Inc()
-
 		case <-keepAlive.C:
 			fmt.Fprintf(w, ": keepalive\n\n")
 			flusher.Flush()
-
-		case <-ctx.Done():
+		case <-r.Context().Done():
 			return
 		}
 	}
 }
 
 func main() {
-	initRedis()
+	rabbitURL := os.Getenv("RABBITMQ_URL")
+	if rabbitURL == "" {
+		rabbitURL = "amqp://devboard:devboard123@rabbitmq:5672/"
+	}
+	go consumeEvents(context.Background(), rabbitURL)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/events", eventsHandler)
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		if err := rdb.Ping(r.Context()).Err(); err != nil {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusServiceUnavailable)
-			fmt.Fprintf(w, `{"status":"unhealthy","error":%q}`, err.Error())
-			return
-		}
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"status":"ok","service":"notification-service"}`)
+		fmt.Fprintf(w, `{"status":"ok","service":"notification-service","rabbit_ready":%t}`, rabbitReady.Load())
 	})
 	mux.Handle("/metrics", promhttp.Handler())
 

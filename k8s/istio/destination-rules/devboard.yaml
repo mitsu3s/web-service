@@ -61,3 +61,30 @@ spec:
   trafficPolicy:
     loadBalancer:
       simple: ROUND_ROBIN
+---
+# project-service
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: project-service
+  namespace: devboard
+spec:
+  host: project-service
+  trafficPolicy:
+    loadBalancer:
+      simple: ROUND_ROBIN
+    connectionPool:
+      http:
+        http1MaxPendingRequests: 100
+---
+# activity-service
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: activity-service
+  namespace: devboard
+spec:
+  host: activity-service
+  trafficPolicy:
+    loadBalancer:
+      simple: ROUND_ROBIN
