@@ -1,12 +1,12 @@
 ---
-# api-gateway: least connection load balancing
+# web-bff: least connection load balancing
 apiVersion: networking.istio.io/v1beta1
 kind: DestinationRule
 metadata:
-  name: api-gateway
+  name: web-bff
   namespace: devboard
 spec:
-  host: api-gateway
+  host: web-bff
   trafficPolicy:
     loadBalancer:
       simple: LEAST_CONN
@@ -15,14 +15,29 @@ spec:
         http1MaxPendingRequests: 100
         http2MaxRequests: 1000
 ---
-# auth-service
+# board-service
 apiVersion: networking.istio.io/v1beta1
 kind: DestinationRule
 metadata:
-  name: auth-service
+  name: board-service
   namespace: devboard
 spec:
-  host: auth-service
+  host: board-service
+  trafficPolicy:
+    loadBalancer:
+      simple: LEAST_CONN
+    connectionPool:
+      http:
+        http1MaxPendingRequests: 100
+---
+# identity-service
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: identity-service
+  namespace: devboard
+spec:
+  host: identity-service
   trafficPolicy:
     loadBalancer:
       simple: ROUND_ROBIN
@@ -30,14 +45,59 @@ spec:
       http:
         http1MaxPendingRequests: 50
 ---
-# task-service: circuit breaker example
+# membership-service
 apiVersion: networking.istio.io/v1beta1
 kind: DestinationRule
 metadata:
-  name: task-service
+  name: membership-service
   namespace: devboard
 spec:
-  host: task-service
+  host: membership-service
+  trafficPolicy:
+    loadBalancer:
+      simple: ROUND_ROBIN
+    connectionPool:
+      http:
+        http1MaxPendingRequests: 50
+---
+# access-service
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: access-service
+  namespace: devboard
+spec:
+  host: access-service
+  trafficPolicy:
+    loadBalancer:
+      simple: ROUND_ROBIN
+    connectionPool:
+      http:
+        http1MaxPendingRequests: 50
+---
+# task-orchestrator-service
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: task-orchestrator-service
+  namespace: devboard
+spec:
+  host: task-orchestrator-service
+  trafficPolicy:
+    loadBalancer:
+      simple: ROUND_ROBIN
+    connectionPool:
+      http:
+        http1MaxPendingRequests: 100
+---
+# task-command-service: circuit breaker example
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: task-command-service
+  namespace: devboard
+spec:
+  host: task-command-service
   trafficPolicy:
     loadBalancer:
       simple: ROUND_ROBIN
@@ -49,6 +109,21 @@ spec:
       interval: 30s
       baseEjectionTime: 60s
       maxEjectionPercent: 50
+---
+# board-query-service
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: board-query-service
+  namespace: devboard
+spec:
+  host: board-query-service
+  trafficPolicy:
+    loadBalancer:
+      simple: ROUND_ROBIN
+    connectionPool:
+      http:
+        http1MaxPendingRequests: 100
 ---
 # notification-service
 apiVersion: networking.istio.io/v1beta1
@@ -85,6 +160,30 @@ metadata:
   namespace: devboard
 spec:
   host: activity-service
+  trafficPolicy:
+    loadBalancer:
+      simple: ROUND_ROBIN
+---
+# workflow-service
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: workflow-service
+  namespace: devboard
+spec:
+  host: workflow-service
+  trafficPolicy:
+    loadBalancer:
+      simple: ROUND_ROBIN
+---
+# search-service
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: search-service
+  namespace: devboard
+spec:
+  host: search-service.logging.svc.cluster.local
   trafficPolicy:
     loadBalancer:
       simple: ROUND_ROBIN
