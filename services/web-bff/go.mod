@@ -1,4 +1,4 @@
-module github.com/devboard/api-gateway
+module github.com/devboard/web-bff
 
 go 1.25
 
