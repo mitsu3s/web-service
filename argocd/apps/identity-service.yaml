@@ -1,7 +1,7 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: search-indexer
+  name: identity-service
   namespace: argocd
   finalizers:
     - resources-finalizer.argocd.argoproj.io
@@ -10,13 +10,13 @@ spec:
   source:
     repoURL: https://github.com/mitsu3s/web-service
     targetRevision: HEAD
-    path: helm/search-indexer
+    path: helm/identity-service
     helm:
       valueFiles:
         - values.yaml
   destination:
     server: https://kubernetes.default.svc
-    namespace: logging
+    namespace: devboard
   syncPolicy:
     automated:
       prune: true
