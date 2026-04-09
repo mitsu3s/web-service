@@ -1,4 +1,4 @@
-module github.com/devboard/search-indexer
+module github.com/devboard/search-service
 
 go 1.25
 
