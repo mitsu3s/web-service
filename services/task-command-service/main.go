@@ -18,7 +18,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	amqp "github.com/rabbitmq/amqp091-go"
-	"github.com/redis/go-redis/v9"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -30,7 +29,7 @@ type Task struct {
 	ProjectID   uint      `json:"project_id" gorm:"index"`
 	Title       string    `json:"title" gorm:"not null"`
 	Description string    `json:"description"`
-	Status      string    `json:"status" gorm:"default:'pending'"`
+	Status      string    `json:"status" gorm:"default:'backlog'"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }
@@ -67,37 +66,32 @@ type amqpPublisher struct {
 }
 
 var (
-	db                *gorm.DB
-	rdb               *redis.Client
-	publisher         *amqpPublisher
-	projectServiceURL string
-	httpClient        = &http.Client{Timeout: 5 * time.Second}
+	db        *gorm.DB
+	publisher *amqpPublisher
 
-	tasksCreatedTotal = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "tasks_created_total",
-		Help: "Total tasks created",
-	})
-	cacheHitsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Name: "cache_hits_total",
-		Help: "Redis cache hits and misses",
-	}, []string{"result"})
+	taskCommandsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "task_command_operations_total",
+		Help: "Total task write operations",
+	}, []string{"action"})
 	outboxPublishedTotal = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "task_outbox_published_total",
+		Name: "task_command_outbox_published_total",
 		Help: "Total outbox events published to RabbitMQ",
 	})
 	outboxPublishFailuresTotal = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "task_outbox_publish_failures_total",
+		Name: "task_command_outbox_publish_failures_total",
 		Help: "Total outbox publish failures",
 	})
 )
 
 func init() {
-	prometheus.MustRegister(
-		tasksCreatedTotal,
-		cacheHitsTotal,
-		outboxPublishedTotal,
-		outboxPublishFailuresTotal,
-	)
+	prometheus.MustRegister(taskCommandsTotal, outboxPublishedTotal, outboxPublishFailuresTotal)
+}
+
+func getEnv(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
 }
 
 func initMySQL() {
@@ -121,25 +115,9 @@ func initMySQL() {
 		log.Fatalf("failed to connect MySQL: %v", err)
 	}
 	if err := db.AutoMigrate(&Task{}, &OutboxEvent{}); err != nil {
-		log.Fatalf("AutoMigrate: %v", err)
+		log.Fatalf("AutoMigrate failed: %v", err)
 	}
 	log.Println("MySQL connected")
-}
-
-func initRedis() {
-	addr := os.Getenv("REDIS_ADDR")
-	if addr == "" {
-		addr = "redis:6379"
-	}
-	rdb = redis.NewClient(&redis.Options{Addr: addr})
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := rdb.Ping(ctx).Err(); err != nil {
-		log.Printf("Redis not available: %v (cache will degrade gracefully)", err)
-		return
-	}
-	log.Println("Redis connected")
 }
 
 func newPublisher(url, exchange string) *amqpPublisher {
@@ -246,80 +224,6 @@ func newEventID() string {
 	return hex.EncodeToString(buf)
 }
 
-func cacheVersionKey(userID uint) string {
-	return fmt.Sprintf("tasks:user:%d:version", userID)
-}
-
-func cacheKey(userID uint, version string, projectID *uint) string {
-	scope := "all"
-	if projectID != nil {
-		scope = fmt.Sprintf("project:%d", *projectID)
-	}
-	return fmt.Sprintf("tasks:user:%d:v:%s:%s", userID, version, scope)
-}
-
-func getCacheVersion(ctx context.Context, userID uint) string {
-	if rdb == nil {
-		return "0"
-	}
-	version, err := rdb.Get(ctx, cacheVersionKey(userID)).Result()
-	if err == nil {
-		return version
-	}
-	if err != redis.Nil {
-		log.Printf("cache version lookup failed: %v", err)
-	}
-	return "0"
-}
-
-func invalidateCache(ctx context.Context, userID uint) {
-	if rdb == nil {
-		return
-	}
-	if err := rdb.Incr(ctx, cacheVersionKey(userID)).Err(); err != nil {
-		log.Printf("cache invalidation failed: %v", err)
-	}
-}
-
-func parseProjectID(r *http.Request) (*uint, error) {
-	raw := strings.TrimSpace(r.URL.Query().Get("project_id"))
-	if raw == "" {
-		return nil, nil
-	}
-	id, err := strconv.ParseUint(raw, 10, 64)
-	if err != nil {
-		return nil, fmt.Errorf("invalid project_id")
-	}
-	projectID := uint(id)
-	return &projectID, nil
-}
-
-func validateProjectAccess(ctx context.Context, userID, projectID uint) error {
-	if projectID == 0 || projectServiceURL == "" {
-		return nil
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/projects/%d/access", strings.TrimRight(projectServiceURL, "/"), projectID), nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("X-User-ID", strconv.FormatUint(uint64(userID), 10))
-
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusOK {
-		return nil
-	}
-	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusForbidden {
-		return fmt.Errorf("project not accessible")
-	}
-	return fmt.Errorf("project-service returned %s", resp.Status)
-}
-
 func enqueueTaskEvent(tx *gorm.DB, eventType string, task Task) error {
 	event := TaskEvent{
 		EventID:     newEventID(),
@@ -346,10 +250,6 @@ func enqueueTaskEvent(tx *gorm.DB, eventType string, task Task) error {
 }
 
 func dispatchPendingOutbox(ctx context.Context) {
-	if publisher == nil {
-		return
-	}
-
 	var events []OutboxEvent
 	if err := db.WithContext(ctx).
 		Where("published_at IS NULL").
@@ -395,106 +295,56 @@ func dispatchOutboxLoop(ctx context.Context) {
 }
 
 func tasksHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
 	userID, ok := getUserID(r)
 	if !ok {
 		jsonResp(w, http.StatusUnauthorized, map[string]string{"error": "missing user context"})
 		return
 	}
 
-	projectID, err := parseProjectID(r)
-	if err != nil {
-		jsonResp(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+	var req struct {
+		Title       string `json:"title"`
+		Description string `json:"description"`
+		ProjectID   uint   `json:"project_id"`
+		Status      string `json:"status"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.Title) == "" || req.ProjectID == 0 {
+		jsonResp(w, http.StatusBadRequest, map[string]string{"error": "title and project_id are required"})
 		return
 	}
-	if projectID != nil {
-		if err := validateProjectAccess(ctx, userID, *projectID); err != nil {
-			jsonResp(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-			return
-		}
+
+	status := strings.TrimSpace(req.Status)
+	if status == "" {
+		status = "backlog"
 	}
 
-	switch r.Method {
-	case http.MethodGet:
-		version := getCacheVersion(ctx, userID)
-		if rdb != nil {
-			if cached, err := rdb.Get(ctx, cacheKey(userID, version, projectID)).Result(); err == nil {
-				cacheHitsTotal.WithLabelValues("hit").Inc()
-				w.Header().Set("Content-Type", "application/json")
-				w.Header().Set("X-Cache", "HIT")
-				fmt.Fprint(w, cached)
-				return
-			} else if err != redis.Nil {
-				log.Printf("cache read failed: %v", err)
-			}
-		}
-
-		cacheHitsTotal.WithLabelValues("miss").Inc()
-
-		query := db.WithContext(ctx).Where("user_id = ?", userID)
-		if projectID != nil {
-			query = query.Where("project_id = ?", *projectID)
-		}
-
-		var tasks []Task
-		query.Order("created_at desc").Find(&tasks)
-		body, _ := json.Marshal(tasks)
-		if rdb != nil {
-			if err := rdb.Set(ctx, cacheKey(userID, version, projectID), body, 5*time.Minute).Err(); err != nil {
-				log.Printf("cache write failed: %v", err)
-			}
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("X-Cache", "MISS")
-		w.Write(body)
-
-	case http.MethodPost:
-		var req struct {
-			Title       string `json:"title"`
-			Description string `json:"description"`
-			ProjectID   uint   `json:"project_id"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.Title) == "" {
-			jsonResp(w, http.StatusBadRequest, map[string]string{"error": "title is required"})
-			return
-		}
-		if req.ProjectID != 0 {
-			if err := validateProjectAccess(ctx, userID, req.ProjectID); err != nil {
-				jsonResp(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-				return
-			}
-		}
-
-		task := Task{
-			UserID:      userID,
-			ProjectID:   req.ProjectID,
-			Title:       strings.TrimSpace(req.Title),
-			Description: strings.TrimSpace(req.Description),
-			Status:      "pending",
-		}
-
-		if err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-			if err := tx.Create(&task).Error; err != nil {
-				return err
-			}
-			return enqueueTaskEvent(tx, "task.created", task)
-		}); err != nil {
-			jsonResp(w, http.StatusInternalServerError, map[string]string{"error": "failed to create task"})
-			return
-		}
-
-		invalidateCache(ctx, userID)
-		tasksCreatedTotal.Inc()
-		jsonResp(w, http.StatusCreated, task)
-
-	default:
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	task := Task{
+		UserID:      userID,
+		ProjectID:   req.ProjectID,
+		Title:       strings.TrimSpace(req.Title),
+		Description: strings.TrimSpace(req.Description),
+		Status:      status,
 	}
+
+	if err := db.WithContext(r.Context()).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&task).Error; err != nil {
+			return err
+		}
+		return enqueueTaskEvent(tx, "task.created", task)
+	}); err != nil {
+		jsonResp(w, http.StatusInternalServerError, map[string]string{"error": "failed to create task"})
+		return
+	}
+
+	taskCommandsTotal.WithLabelValues("create").Inc()
+	jsonResp(w, http.StatusCreated, task)
 }
 
 func taskHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
 	userID, ok := getUserID(r)
 	if !ok {
 		jsonResp(w, http.StatusUnauthorized, map[string]string{"error": "missing user context"})
@@ -503,21 +353,18 @@ func taskHandler(w http.ResponseWriter, r *http.Request) {
 
 	idStr := strings.TrimPrefix(r.URL.Path, "/tasks/")
 	id, err := strconv.ParseUint(idStr, 10, 64)
-	if err != nil {
+	if err != nil || id == 0 {
 		jsonResp(w, http.StatusBadRequest, map[string]string{"error": "invalid id"})
 		return
 	}
 
 	var task Task
-	if result := db.WithContext(ctx).Where("id = ? AND user_id = ?", id, userID).First(&task); result.Error != nil {
+	if result := db.WithContext(r.Context()).First(&task, id); result.Error != nil {
 		jsonResp(w, http.StatusNotFound, map[string]string{"error": "task not found"})
 		return
 	}
 
 	switch r.Method {
-	case http.MethodGet:
-		jsonResp(w, http.StatusOK, task)
-
 	case http.MethodPut:
 		var req struct {
 			Title       string `json:"title"`
@@ -529,24 +376,26 @@ func taskHandler(w http.ResponseWriter, r *http.Request) {
 			jsonResp(w, http.StatusBadRequest, map[string]string{"error": "invalid request"})
 			return
 		}
-		if req.ProjectID != nil && *req.ProjectID != 0 && *req.ProjectID != task.ProjectID {
-			if err := validateProjectAccess(ctx, userID, *req.ProjectID); err != nil {
-				jsonResp(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-				return
-			}
-			task.ProjectID = *req.ProjectID
+		if task.UserID != userID {
+			jsonResp(w, http.StatusForbidden, map[string]string{"error": "task not owned by user"})
+			return
 		}
+		if req.ProjectID != nil && *req.ProjectID != task.ProjectID {
+			jsonResp(w, http.StatusBadRequest, map[string]string{"error": "moving tasks across projects is not supported"})
+			return
+		}
+
 		if strings.TrimSpace(req.Title) != "" {
 			task.Title = strings.TrimSpace(req.Title)
 		}
 		if req.Description != "" {
 			task.Description = strings.TrimSpace(req.Description)
 		}
-		if req.Status != "" {
-			task.Status = req.Status
+		if strings.TrimSpace(req.Status) != "" {
+			task.Status = strings.TrimSpace(req.Status)
 		}
 
-		if err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := db.WithContext(r.Context()).Transaction(func(tx *gorm.DB) error {
 			if err := tx.Save(&task).Error; err != nil {
 				return err
 			}
@@ -556,11 +405,15 @@ func taskHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		invalidateCache(ctx, userID)
+		taskCommandsTotal.WithLabelValues("update").Inc()
 		jsonResp(w, http.StatusOK, task)
 
 	case http.MethodDelete:
-		if err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if task.UserID != userID {
+			jsonResp(w, http.StatusForbidden, map[string]string{"error": "task not owned by user"})
+			return
+		}
+		if err := db.WithContext(r.Context()).Transaction(func(tx *gorm.DB) error {
 			if err := tx.Delete(&task).Error; err != nil {
 				return err
 			}
@@ -570,7 +423,7 @@ func taskHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		invalidateCache(ctx, userID)
+		taskCommandsTotal.WithLabelValues("delete").Inc()
 		w.WriteHeader(http.StatusNoContent)
 
 	default:
@@ -580,13 +433,8 @@ func taskHandler(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	initMySQL()
-	initRedis()
 
-	projectServiceURL = os.Getenv("PROJECT_SERVICE_URL")
-	rabbitURL := os.Getenv("RABBITMQ_URL")
-	if rabbitURL == "" {
-		rabbitURL = "amqp://devboard:devboard123@rabbitmq:5672/"
-	}
+	rabbitURL := getEnv("RABBITMQ_URL", "amqp://devboard:devboard123@rabbitmq:5672/")
 	publisher = newPublisher(rabbitURL, "devboard.events")
 
 	go dispatchOutboxLoop(context.Background())
@@ -602,16 +450,13 @@ func main() {
 		}
 		jsonResp(w, http.StatusOK, map[string]any{
 			"status":       "ok",
-			"service":      "task-service",
+			"service":      "task-command-service",
 			"rabbit_ready": publisher.Ready(),
 		})
 	})
 	mux.Handle("/metrics", promhttp.Handler())
 
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
-	}
-	log.Printf("task-service listening on :%s", port)
+	port := getEnv("PORT", "8080")
+	log.Printf("task-command-service listening on :%s", port)
 	log.Fatal(http.ListenAndServe(":"+port, mux))
 }
