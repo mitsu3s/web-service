@@ -1,0 +1,6 @@
+apiVersion: v2
+name: task-orchestrator-service
+description: DevBoard Task Orchestrator Service - synchronous task command orchestration
+type: application
+version: 0.1.0
+appVersion: "latest"

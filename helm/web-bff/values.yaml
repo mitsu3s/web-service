@@ -1,0 +1,31 @@
+replicaCount: 1
+image:
+  repository: ghcr.io/mitsu3s/devboard-web-bff
+  pullPolicy: IfNotPresent
+  tag: "d521070554873e772ffc061ae67019dd04ee2379"
+service:
+  type: ClusterIP
+  port: 8080
+env:
+  JWT_SECRET: "change-me-in-production"
+  IDENTITY_SERVICE_URL: "http://identity-service:8080"
+  BOARD_SERVICE_URL: "http://board-service:8080"
+  PROJECT_SERVICE_URL: "http://project-service:8080"
+  TASK_ORCHESTRATOR_SERVICE_URL: "http://task-orchestrator-service:8080"
+  NOTIFICATION_SERVICE_URL: "http://notification-service:8080"
+  FRONTEND_URL: "http://frontend:3000"
+resources:
+  requests:
+    cpu: 100m
+    memory: 64Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 70
+serviceMonitor:
+  enabled: true
+  interval: 15s

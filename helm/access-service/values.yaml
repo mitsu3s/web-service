@@ -1,21 +1,21 @@
 replicaCount: 1
 image:
-  repository: ghcr.io/mitsu3s/devboard-project-service
+  repository: ghcr.io/mitsu3s/devboard-access-service
   pullPolicy: IfNotPresent
   tag: "d521070554873e772ffc061ae67019dd04ee2379"
 service:
   type: ClusterIP
   port: 8080
 env:
-  MYSQL_DSN: "devboard:devboard123@tcp(mysql:3306)/devboard?charset=utf8mb4&parseTime=True&loc=Local"
   MEMBERSHIP_SERVICE_URL: "http://membership-service:8080"
+  BOARD_QUERY_SERVICE_URL: "http://board-query-service:8080"
 resources:
   requests:
     cpu: 50m
-    memory: 64Mi
+    memory: 32Mi
   limits:
     cpu: 300m
-    memory: 256Mi
+    memory: 128Mi
 autoscaling:
   enabled: false
   minReplicas: 1
