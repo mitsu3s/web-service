@@ -1,4 +1,4 @@
-module github.com/devboard/auth-service
+module github.com/devboard/identity-service
 
 go 1.25
 

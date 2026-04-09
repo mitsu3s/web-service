@@ -1,0 +1,12 @@
+FROM golang:1.25-alpine AS builder
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -o /identity-service .
+
+FROM scratch
+LABEL org.opencontainers.image.description="Devboard identity service"
+COPY --from=builder /identity-service /identity-service
+EXPOSE 8080
+ENTRYPOINT ["/identity-service"]

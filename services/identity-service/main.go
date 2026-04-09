@@ -33,11 +33,11 @@ var (
 	jwtSecret []byte
 
 	registrationsTotal = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "auth_registrations_total",
+		Name: "identity_registrations_total",
 		Help: "Total user registrations",
 	})
 	loginsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Name: "auth_logins_total",
+		Name: "identity_logins_total",
 		Help: "Total login attempts",
 	}, []string{"result"})
 )
@@ -169,7 +169,7 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 	jsonResp(w, http.StatusOK, map[string]string{"token": token})
 }
 
-// GET /me  (X-User-ID is injected by api-gateway)
+// GET /me  (X-User-ID is injected by web-bff)
 func meHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -200,7 +200,7 @@ func main() {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"status":"ok","service":"auth-service"}`)
+		fmt.Fprint(w, `{"status":"ok","service":"identity-service"}`)
 	})
 	mux.Handle("/metrics", promhttp.Handler())
 
@@ -208,6 +208,6 @@ func main() {
 	if port == "" {
 		port = "8080"
 	}
-	log.Printf("auth-service listening on :%s", port)
+	log.Printf("identity-service listening on :%s", port)
 	log.Fatal(http.ListenAndServe(":"+port, mux))
 }
