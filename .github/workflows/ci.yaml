@@ -28,7 +28,7 @@ jobs:
   # ---------------------------------------------------------------------------
   detect-changes:
     name: Detect changed services
-    runs-on: self-hosted
+    runs-on: [self-hosted, Linux, X64]
     permissions:
       contents: read
       pull-requests: read
@@ -44,20 +44,32 @@ jobs:
         uses: dorny/paths-filter@v3
         with:
           filters: |
-            api_gateway:
-              - "services/api-gateway/**"
-            auth_service:
-              - "services/auth-service/**"
-            task_service:
-              - "services/task-service/**"
-            notification_service:
-              - "services/notification-service/**"
+            web_bff:
+              - "services/web-bff/**"
+            board_service:
+              - "services/board-service/**"
+            identity_service:
+              - "services/identity-service/**"
+            membership_service:
+              - "services/membership-service/**"
+            access_service:
+              - "services/access-service/**"
             project_service:
               - "services/project-service/**"
+            task_orchestrator_service:
+              - "services/task-orchestrator-service/**"
+            task_command_service:
+              - "services/task-command-service/**"
+            board_query_service:
+              - "services/board-query-service/**"
             activity_service:
               - "services/activity-service/**"
-            search_indexer:
-              - "services/search-indexer/**"
+            search_service:
+              - "services/search-service/**"
+            notification_service:
+              - "services/notification-service/**"
+            workflow_service:
+              - "services/workflow-service/**"
             frontend:
               - "services/frontend/**"
             manifests:
@@ -86,33 +98,57 @@ jobs:
             printf '%s' "${json}"
           }
 
-          if [ "${{ steps.filter.outputs.api_gateway }}" = "true" ]; then
-            go_services+=("api-gateway")
-            image_services+=("api-gateway")
+          if [ "${{ steps.filter.outputs.web_bff }}" = "true" ]; then
+            go_services+=("web-bff")
+            image_services+=("web-bff")
           fi
-          if [ "${{ steps.filter.outputs.auth_service }}" = "true" ]; then
-            go_services+=("auth-service")
-            image_services+=("auth-service")
+          if [ "${{ steps.filter.outputs.board_service }}" = "true" ]; then
+            go_services+=("board-service")
+            image_services+=("board-service")
           fi
-          if [ "${{ steps.filter.outputs.task_service }}" = "true" ]; then
-            go_services+=("task-service")
-            image_services+=("task-service")
+          if [ "${{ steps.filter.outputs.identity_service }}" = "true" ]; then
+            go_services+=("identity-service")
+            image_services+=("identity-service")
           fi
-          if [ "${{ steps.filter.outputs.notification_service }}" = "true" ]; then
-            go_services+=("notification-service")
-            image_services+=("notification-service")
+          if [ "${{ steps.filter.outputs.membership_service }}" = "true" ]; then
+            go_services+=("membership-service")
+            image_services+=("membership-service")
+          fi
+          if [ "${{ steps.filter.outputs.access_service }}" = "true" ]; then
+            go_services+=("access-service")
+            image_services+=("access-service")
           fi
           if [ "${{ steps.filter.outputs.project_service }}" = "true" ]; then
             go_services+=("project-service")
             image_services+=("project-service")
           fi
+          if [ "${{ steps.filter.outputs.task_orchestrator_service }}" = "true" ]; then
+            go_services+=("task-orchestrator-service")
+            image_services+=("task-orchestrator-service")
+          fi
+          if [ "${{ steps.filter.outputs.task_command_service }}" = "true" ]; then
+            go_services+=("task-command-service")
+            image_services+=("task-command-service")
+          fi
+          if [ "${{ steps.filter.outputs.board_query_service }}" = "true" ]; then
+            go_services+=("board-query-service")
+            image_services+=("board-query-service")
+          fi
           if [ "${{ steps.filter.outputs.activity_service }}" = "true" ]; then
             go_services+=("activity-service")
             image_services+=("activity-service")
           fi
-          if [ "${{ steps.filter.outputs.search_indexer }}" = "true" ]; then
-            go_services+=("search-indexer")
-            image_services+=("search-indexer")
+          if [ "${{ steps.filter.outputs.search_service }}" = "true" ]; then
+            go_services+=("search-service")
+            image_services+=("search-service")
+          fi
+          if [ "${{ steps.filter.outputs.notification_service }}" = "true" ]; then
+            go_services+=("notification-service")
+            image_services+=("notification-service")
+          fi
+          if [ "${{ steps.filter.outputs.workflow_service }}" = "true" ]; then
+            go_services+=("workflow-service")
+            image_services+=("workflow-service")
           fi
           if [ "${{ steps.filter.outputs.frontend }}" = "true" ]; then
             image_services+=("frontend")
@@ -124,7 +160,7 @@ jobs:
   validate-manifests:
     name: Validate Manifests
     needs: detect-changes
-    runs-on: self-hosted
+    runs-on: [self-hosted, Linux, X64]
     if: |
       needs.detect-changes.outputs.manifest_changed == 'true' ||
       needs.detect-changes.outputs.go_services != '[]' ||
@@ -161,13 +197,19 @@ jobs:
         run: |
           set -euo pipefail
           for chart in \
-            helm/api-gateway \
-            helm/auth-service \
-            helm/task-service \
-            helm/notification-service \
+            helm/web-bff \
+            helm/board-service \
+            helm/access-service \
+            helm/membership-service \
+            helm/identity-service \
             helm/project-service \
+            helm/task-orchestrator-service \
+            helm/task-command-service \
+            helm/board-query-service \
             helm/activity-service \
-            helm/search-indexer \
+            helm/search-service \
+            helm/notification-service \
+            helm/workflow-service \
             helm/frontend; do
             chart_name="$(basename "${chart}")"
             helm lint "${chart}"
@@ -189,7 +231,7 @@ jobs:
   test-go:
     name: Test (${{ matrix.service }})
     needs: detect-changes
-    runs-on: self-hosted
+    runs-on: [self-hosted, Linux, X64]
     if: needs.detect-changes.outputs.go_services != '[]'
     strategy:
       fail-fast: false
@@ -223,7 +265,7 @@ jobs:
   test-frontend:
     name: Test (frontend)
     needs: detect-changes
-    runs-on: self-hosted
+    runs-on: [self-hosted, Linux, X64]
     if: needs.detect-changes.outputs.frontend_changed == 'true'
     steps:
       - uses: actions/checkout@v4
@@ -248,7 +290,7 @@ jobs:
   build-go:
     name: Build (${{ matrix.service }})
     needs: [detect-changes, test-go]
-    runs-on: self-hosted
+    runs-on: [self-hosted, Linux, X64]
     if: github.ref == 'refs/heads/main' && needs.detect-changes.outputs.go_services != '[]'
     permissions:
       contents: read
@@ -258,9 +300,6 @@ jobs:
         service: ${{ fromJSON(needs.detect-changes.outputs.go_services) }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -319,7 +358,7 @@ jobs:
   update-image-tags:
     name: Update image tags in Helm charts
     needs: [detect-changes, validate-manifests, build-go, build-frontend]
-    runs-on: self-hosted
+    runs-on: [self-hosted, Linux, X64]
     if: |
       github.ref == 'refs/heads/main' &&
       needs.detect-changes.outputs.image_services != '[]' &&

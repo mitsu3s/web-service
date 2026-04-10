@@ -38,7 +38,7 @@ jobs:
           if [ -n "${APP}" ]; then
             argocd app sync "${APP}" --timeout 120
           else
-            for app in rabbitmq project-service activity-service search-indexer api-gateway auth-service task-service notification-service frontend istio-config; do
+            for app in rabbitmq web-bff board-service identity-service membership-service access-service project-service task-orchestrator-service task-command-service board-query-service activity-service search-service notification-service workflow-service frontend istio-config; do
               echo "Syncing ${app}..."
               argocd app sync "${app}" --timeout 120 || true
             done

@@ -15,7 +15,7 @@ spec:
             prefix: /api/notifications/
       route:
         - destination:
-            host: api-gateway
+            host: web-bff
             port:
               number: 8080
 
@@ -25,7 +25,7 @@ spec:
             prefix: /
       route:
         - destination:
-            host: api-gateway
+            host: web-bff
             port:
               number: 8080
       timeout: 30s

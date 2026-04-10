@@ -1,0 +1,6 @@
+apiVersion: v2
+name: board-service
+description: DevBoard Board Service - read orchestration across memberships, workflow, search, and read models
+type: application
+version: 0.1.0
+appVersion: "latest"

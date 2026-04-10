@@ -1,0 +1,6 @@
+apiVersion: v2
+name: web-bff
+description: DevBoard Web BFF - frontend orchestration and edge auth
+type: application
+version: 0.1.0
+appVersion: "latest"

@@ -47,10 +47,10 @@ type Activity struct {
 }
 
 var (
-	db                *gorm.DB
-	projectServiceURL string
-	httpClient        = &http.Client{Timeout: 5 * time.Second}
-	rabbitReady       atomic.Bool
+	db               *gorm.DB
+	accessServiceURL string
+	httpClient       = &http.Client{Timeout: 5 * time.Second}
+	rabbitReady      atomic.Bool
 
 	activityEventsStoredTotal = prometheus.NewCounter(prometheus.CounterOpts{
 		Name: "activity_events_stored_total",
@@ -107,11 +107,11 @@ func getUserID(r *http.Request) (uint, bool) {
 }
 
 func validateProjectAccess(ctx context.Context, userID, projectID uint) error {
-	if projectID == 0 || projectServiceURL == "" {
+	if projectID == 0 || accessServiceURL == "" {
 		return nil
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/projects/%d/access", strings.TrimRight(projectServiceURL, "/"), projectID), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/projects/%d/access", strings.TrimRight(accessServiceURL, "/"), projectID), nil)
 	if err != nil {
 		return err
 	}
@@ -126,10 +126,10 @@ func validateProjectAccess(ctx context.Context, userID, projectID uint) error {
 	if resp.StatusCode == http.StatusOK {
 		return nil
 	}
-	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusForbidden {
+	if resp.StatusCode == http.StatusForbidden {
 		return fmt.Errorf("project not accessible")
 	}
-	return fmt.Errorf("project-service returned %s", resp.Status)
+	return fmt.Errorf("access-service returned %s", resp.Status)
 }
 
 func consumeEvents(ctx context.Context, rabbitURL string) {
@@ -272,7 +272,7 @@ func activityHandler(w http.ResponseWriter, r *http.Request) {
 func main() {
 	initDB()
 
-	projectServiceURL = os.Getenv("PROJECT_SERVICE_URL")
+	accessServiceURL = os.Getenv("ACCESS_SERVICE_URL")
 	rabbitURL := os.Getenv("RABBITMQ_URL")
 	if rabbitURL == "" {
 		rabbitURL = "amqp://devboard:devboard123@rabbitmq:5672/"
