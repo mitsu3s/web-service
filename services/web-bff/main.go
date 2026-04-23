@@ -64,12 +64,19 @@ func newProxy(rawURL string) *httputil.ReverseProxy {
 	if err != nil {
 		log.Fatalf("invalid upstream URL %s: %v", rawURL, err)
 	}
-	proxy := httputil.NewSingleHostReverseProxy(u)
-	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, proxyErr error) {
-		log.Printf("proxy error to %s: %v", rawURL, proxyErr)
-		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "upstream unavailable"})
+	return &httputil.ReverseProxy{
+		Rewrite: func(pr *httputil.ProxyRequest) {
+			pr.SetURL(u)
+			pr.SetXForwarded()
+			if host := pr.In.Host; host != "" {
+				pr.Out.Header.Set("X-Forwarded-Host", host)
+			}
+		},
+		ErrorHandler: func(w http.ResponseWriter, r *http.Request, proxyErr error) {
+			log.Printf("proxy error to %s: %v", rawURL, proxyErr)
+			writeJSON(w, http.StatusBadGateway, map[string]string{"error": "upstream unavailable"})
+		},
 	}
-	return proxy
 }
 
 func validateJWT(tokenStr string) (uint, bool) {
