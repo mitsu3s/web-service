@@ -360,6 +360,7 @@ jobs:
     needs: [detect-changes, validate-manifests, build-go, build-frontend]
     runs-on: [self-hosted, Linux, X64]
     if: |
+      always() &&
       github.ref == 'refs/heads/main' &&
       needs.detect-changes.outputs.image_services != '[]' &&
       needs.validate-manifests.result == 'success' &&
