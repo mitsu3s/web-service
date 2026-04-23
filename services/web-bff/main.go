@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"log"
+	"math"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -93,11 +94,43 @@ func validateJWT(tokenStr string) (uint, bool) {
 	if !ok {
 		return 0, false
 	}
-	sub, ok := claims["sub"].(float64)
-	if !ok || sub == 0 {
+	return parseUserIDClaim(claims["sub"])
+}
+
+func parseUserIDClaim(sub any) (uint, bool) {
+	switch v := sub.(type) {
+	case float64:
+		if v <= 0 || v != math.Trunc(v) {
+			return 0, false
+		}
+		userID := uint(v)
+		if float64(userID) != v {
+			return 0, false
+		}
+		return userID, true
+	case string:
+		id, err := strconv.ParseUint(strings.TrimSpace(v), 10, 64)
+		if err != nil || id == 0 {
+			return 0, false
+		}
+		userID := uint(id)
+		if uint64(userID) != id {
+			return 0, false
+		}
+		return userID, true
+	case json.Number:
+		id, err := strconv.ParseUint(v.String(), 10, 64)
+		if err != nil || id == 0 {
+			return 0, false
+		}
+		userID := uint(id)
+		if uint64(userID) != id {
+			return 0, false
+		}
+		return userID, true
+	default:
 		return 0, false
 	}
-	return uint(sub), true
 }
 
 func withJWT(next http.Handler) http.Handler {
