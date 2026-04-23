@@ -2,7 +2,7 @@ replicaCount: 1
 image:
   repository: ghcr.io/mitsu3s/devboard-web-bff
   pullPolicy: IfNotPresent
-  tag: "ec49e5c2a664c7ea2fb977ec8395abbd8f89538f"
+  tag: "59c2e25f26889c6916b39ab87b9cfb0d4980994a"
 service:
   type: ClusterIP
   port: 8080
