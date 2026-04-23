@@ -4,9 +4,8 @@ metadata:
   name: default
   namespace: devboard
 spec:
-  # PERMISSIVE: allow both mTLS and plain HTTP
-  # Pod-to-pod traffic via Envoy uses mTLS automatically (auto-mTLS).
-  # STRICT was blocking Go services that bypass Envoy due to
-  # Cilium eBPF + native sidecar not redirecting outbound traffic.
+  # Enforce mTLS for workloads inside the devboard namespace.
+  # This intentionally does not cover logging/search-service yet because
+  # that workload is outside the mesh and will be handled separately.
   mtls:
-    mode: PERMISSIVE
+    mode: STRICT
