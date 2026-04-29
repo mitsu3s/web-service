@@ -1,5 +1,5 @@
 ---
-# web-bff: least connection load balancing
+# web-bff: edge fan-in from the ingress gateway; prefer less-loaded BFF pods.
 apiVersion: networking.istio.io/v1beta1
 kind: DestinationRule
 metadata:
@@ -8,14 +8,17 @@ metadata:
 spec:
   host: web-bff
   trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
     loadBalancer:
       simple: LEAST_CONN
+    # BFF can multiplex many frontend/browser requests into upstream calls.
     connectionPool:
       http:
         http1MaxPendingRequests: 100
         http2MaxRequests: 1000
 ---
-# board-service
+# board-service: read aggregation can fan out to several internal services.
 apiVersion: networking.istio.io/v1beta1
 kind: DestinationRule
 metadata:
@@ -24,8 +27,11 @@ metadata:
 spec:
   host: board-service
   trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
     loadBalancer:
       simple: LEAST_CONN
+    # Dashboard/task reads can queue behind multiple downstream lookups.
     connectionPool:
       http:
         http1MaxPendingRequests: 100
@@ -39,8 +45,11 @@ metadata:
 spec:
   host: identity-service
   trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
     loadBalancer:
       simple: ROUND_ROBIN
+    # Login/register paths should fail fast instead of building a long queue.
     connectionPool:
       http:
         http1MaxPendingRequests: 50
@@ -54,8 +63,11 @@ metadata:
 spec:
   host: membership-service
   trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
     loadBalancer:
       simple: ROUND_ROBIN
+    # Membership checks are synchronous policy lookups; keep pending work bounded.
     connectionPool:
       http:
         http1MaxPendingRequests: 50
@@ -69,8 +81,11 @@ metadata:
 spec:
   host: access-service
   trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
     loadBalancer:
       simple: ROUND_ROBIN
+    # Authorization is on the critical path for task/project operations.
     connectionPool:
       http:
         http1MaxPendingRequests: 50
@@ -84,13 +99,16 @@ metadata:
 spec:
   host: task-orchestrator-service
   trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
     loadBalancer:
       simple: ROUND_ROBIN
+    # Write orchestration may wait on access/workflow/command services.
     connectionPool:
       http:
         http1MaxPendingRequests: 100
 ---
-# task-command-service: circuit breaker example
+# task-command-service: write model endpoint protected by a basic circuit breaker.
 apiVersion: networking.istio.io/v1beta1
 kind: DestinationRule
 metadata:
@@ -99,11 +117,15 @@ metadata:
 spec:
   host: task-command-service
   trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
     loadBalancer:
       simple: ROUND_ROBIN
+    # Command writes should absorb short bursts from the orchestrator.
     connectionPool:
       http:
         http1MaxPendingRequests: 100
+    # Eject unhealthy command-service endpoints to avoid repeated write failures.
     outlierDetection:
       consecutiveGatewayErrors: 3
       interval: 30s
@@ -119,13 +141,16 @@ metadata:
 spec:
   host: board-query-service
   trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
     loadBalancer:
       simple: ROUND_ROBIN
+    # Read-model queries can spike after dashboard/task list requests.
     connectionPool:
       http:
         http1MaxPendingRequests: 100
 ---
-# notification-service
+# notification-service: no connectionPool override yet; SSE behavior is app-level.
 apiVersion: networking.istio.io/v1beta1
 kind: DestinationRule
 metadata:
@@ -134,6 +159,8 @@ metadata:
 spec:
   host: notification-service
   trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
     loadBalancer:
       simple: ROUND_ROBIN
 ---
@@ -146,13 +173,16 @@ metadata:
 spec:
   host: project-service
   trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
     loadBalancer:
       simple: ROUND_ROBIN
+    # Project creation and lookup are on user-facing request paths.
     connectionPool:
       http:
         http1MaxPendingRequests: 100
 ---
-# activity-service
+# activity-service: no connectionPool override yet; currently only board reads call it.
 apiVersion: networking.istio.io/v1beta1
 kind: DestinationRule
 metadata:
@@ -161,10 +191,12 @@ metadata:
 spec:
   host: activity-service
   trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
     loadBalancer:
       simple: ROUND_ROBIN
 ---
-# workflow-service
+# workflow-service: no connectionPool override yet; lightweight workflow validation.
 apiVersion: networking.istio.io/v1beta1
 kind: DestinationRule
 metadata:
@@ -173,10 +205,12 @@ metadata:
 spec:
   host: workflow-service
   trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
     loadBalancer:
       simple: ROUND_ROBIN
 ---
-# search-service
+# search-service: logging namespace is intentionally outside devboard mTLS scope for now.
 apiVersion: networking.istio.io/v1beta1
 kind: DestinationRule
 metadata:
