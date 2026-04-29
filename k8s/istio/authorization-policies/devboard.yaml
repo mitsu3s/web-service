@@ -1,0 +1,268 @@
+---
+# web-bff only accepts traffic from the Istio ingress gateway.
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: web-bff
+  namespace: devboard
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: web-bff
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/istio-ingress/sa/istio-ingress
+      to:
+        - operation:
+            ports: ["8080"]
+---
+# frontend is reached through web-bff; no direct mesh callers are allowed.
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: frontend
+  namespace: devboard
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: frontend
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/devboard/sa/web-bff
+      to:
+        - operation:
+            ports: ["3000"]
+---
+# identity-service auth endpoints are exposed only through web-bff.
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: identity-service
+  namespace: devboard
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: identity-service
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/devboard/sa/web-bff
+      to:
+        - operation:
+            ports: ["8080"]
+---
+# board-service is the read aggregation API behind web-bff.
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: board-service
+  namespace: devboard
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: board-service
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/devboard/sa/web-bff
+      to:
+        - operation:
+            ports: ["8080"]
+---
+# project-service serves BFF project creation and internal lookup/validation.
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: project-service
+  namespace: devboard
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: project-service
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/devboard/sa/board-service
+              - cluster.local/ns/devboard/sa/web-bff
+              - cluster.local/ns/devboard/sa/workflow-service
+      to:
+        - operation:
+            ports: ["8080"]
+---
+# task-orchestrator-service is the write orchestration entry from web-bff.
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: task-orchestrator-service
+  namespace: devboard
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: task-orchestrator-service
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/devboard/sa/web-bff
+      to:
+        - operation:
+            ports: ["8080"]
+---
+# notification-service SSE access is proxied by web-bff.
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: notification-service
+  namespace: devboard
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: notification-service
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/devboard/sa/web-bff
+      to:
+        - operation:
+            ports: ["8080"]
+---
+# membership-service is limited to callers that need project membership state.
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: membership-service
+  namespace: devboard
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: membership-service
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/devboard/sa/access-service
+              - cluster.local/ns/devboard/sa/board-service
+              - cluster.local/ns/devboard/sa/project-service
+      to:
+        - operation:
+            ports: ["8080"]
+---
+# access-service is the central authorization backend for read/write/activity flows.
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: access-service
+  namespace: devboard
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: access-service
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/devboard/sa/activity-service
+              - cluster.local/ns/devboard/sa/board-service
+              - cluster.local/ns/devboard/sa/task-orchestrator-service
+      to:
+        - operation:
+            ports: ["8080"]
+---
+# workflow-service is used by read aggregation and task write validation.
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: workflow-service
+  namespace: devboard
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: workflow-service
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/devboard/sa/board-service
+              - cluster.local/ns/devboard/sa/task-orchestrator-service
+      to:
+        - operation:
+            ports: ["8080"]
+---
+# task-command-service accepts writes only from the orchestrator.
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: task-command-service
+  namespace: devboard
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: task-command-service
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/devboard/sa/task-orchestrator-service
+      to:
+        - operation:
+            ports: ["8080"]
+---
+# board-query-service is the task read model for board and access checks.
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: board-query-service
+  namespace: devboard
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: board-query-service
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/devboard/sa/access-service
+              - cluster.local/ns/devboard/sa/board-service
+      to:
+        - operation:
+            ports: ["8080"]
+---
+# activity-service is read only through board-service.
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: activity-service
+  namespace: devboard
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: activity-service
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/devboard/sa/board-service
+      to:
+        - operation:
+            ports: ["8080"]
