@@ -432,6 +432,8 @@ func taskHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	defer initTracing("task-command-service")()
+
 	initMySQL()
 
 	rabbitURL := getEnv("RABBITMQ_URL", "amqp://devboard:devboard123@rabbitmq:5672/")
@@ -458,5 +460,5 @@ func main() {
 
 	port := getEnv("PORT", "8080")
 	log.Printf("task-command-service listening on :%s", port)
-	log.Fatal(http.ListenAndServe(":"+port, mux))
+	log.Fatal(http.ListenAndServe(":"+port, tracedHTTPHandler("task-command-service", mux)))
 }

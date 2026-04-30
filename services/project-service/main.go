@@ -41,7 +41,7 @@ type membershipCreateRequest struct {
 
 var (
 	db                   *gorm.DB
-	httpClient           = &http.Client{Timeout: 5 * time.Second}
+	httpClient           = tracedHTTPClient(5 * time.Second)
 	membershipServiceURL string
 
 	projectsCreatedTotal = prometheus.NewCounter(prometheus.CounterOpts{
@@ -258,6 +258,8 @@ func projectByIDHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	defer initTracing("project-service")()
+
 	initDB()
 	membershipServiceURL = getEnv("MEMBERSHIP_SERVICE_URL", "http://membership-service:8080")
 
@@ -277,5 +279,5 @@ func main() {
 
 	port := getEnv("PORT", "8080")
 	log.Printf("project-service listening on :%s", port)
-	log.Fatal(http.ListenAndServe(":"+port, mux))
+	log.Fatal(http.ListenAndServe(":"+port, tracedHTTPHandler("project-service", mux)))
 }

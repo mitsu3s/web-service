@@ -75,7 +75,7 @@ func (e upstreamStatusError) Error() string {
 }
 
 var (
-	httpClient = &http.Client{Timeout: 10 * time.Second}
+	httpClient = tracedHTTPClient(10 * time.Second)
 
 	accessServiceURL      string
 	workflowServiceURL    string
@@ -366,6 +366,8 @@ func taskHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	defer initTracing("task-orchestrator-service")()
+
 	accessServiceURL = getEnv("ACCESS_SERVICE_URL", "http://access-service:8080")
 	workflowServiceURL = getEnv("WORKFLOW_SERVICE_URL", "http://workflow-service:8080")
 	taskCommandServiceURL = getEnv("TASK_COMMAND_SERVICE_URL", "http://task-command-service:8080")
@@ -380,5 +382,5 @@ func main() {
 
 	port := getEnv("PORT", "8080")
 	log.Printf("task-orchestrator-service listening on :%s", port)
-	log.Fatal(http.ListenAndServe(":"+port, mux))
+	log.Fatal(http.ListenAndServe(":"+port, tracedHTTPHandler("task-orchestrator-service", mux)))
 }

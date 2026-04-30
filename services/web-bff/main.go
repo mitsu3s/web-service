@@ -66,6 +66,7 @@ func newProxy(rawURL string) *httputil.ReverseProxy {
 		log.Fatalf("invalid upstream URL %s: %v", rawURL, err)
 	}
 	return &httputil.ReverseProxy{
+		Transport: tracedHTTPTransport(),
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			pr.SetURL(u)
 			pr.SetXForwarded()
@@ -215,6 +216,8 @@ func withMetrics(next http.Handler) http.Handler {
 }
 
 func main() {
+	defer initTracing("web-bff")()
+
 	identityServiceURL = getEnv("IDENTITY_SERVICE_URL", "http://identity-service:8080")
 	boardServiceURL = getEnv("BOARD_SERVICE_URL", "http://board-service:8080")
 	projectServiceURL = getEnv("PROJECT_SERVICE_URL", "http://project-service:8080")
@@ -261,5 +264,5 @@ func main() {
 
 	port := getEnv("PORT", "8080")
 	log.Printf("web-bff listening on :%s", port)
-	log.Fatal(http.ListenAndServe(":"+port, withMetrics(mux)))
+	log.Fatal(http.ListenAndServe(":"+port, tracedHTTPHandler("web-bff", withMetrics(mux))))
 }
