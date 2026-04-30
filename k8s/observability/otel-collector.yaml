@@ -63,7 +63,7 @@ spec:
     spec:
       containers:
         - name: otel-collector
-          image: otel/opentelemetry-collector-contrib:0.150.0
+          image: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib:0.151.0
           imagePullPolicy: IfNotPresent
           args:
             - --config=/etc/otelcol/collector.yaml
