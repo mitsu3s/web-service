@@ -9,6 +9,11 @@ service:
 env:
   MEMBERSHIP_SERVICE_URL: "http://membership-service:8080"
   BOARD_QUERY_SERVICE_URL: "http://board-query-service:8080"
+  OTEL_SERVICE_NAME: "access-service"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.monitoring.svc.cluster.local:4318"
+  OTEL_TRACES_EXPORTER: "otlp"
+  OTEL_TRACES_SAMPLER: "parentbased_traceidratio"
+  OTEL_TRACES_SAMPLER_ARG: "1.0"
 resources:
   requests:
     cpu: 50m
