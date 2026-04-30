@@ -352,6 +352,8 @@ func internalTaskHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	defer initTracing("board-query-service")()
+
 	initDB()
 	backfillTaskViews(context.Background())
 
@@ -378,5 +380,5 @@ func main() {
 
 	port := getEnv("PORT", "8080")
 	log.Printf("board-query-service listening on :%s", port)
-	log.Fatal(http.ListenAndServe(":"+port, mux))
+	log.Fatal(http.ListenAndServe(":"+port, tracedHTTPHandler("board-query-service", mux)))
 }

@@ -237,6 +237,8 @@ func internalMembershipsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	defer initTracing("membership-service")()
+
 	initDB()
 
 	mux := http.NewServeMux()
@@ -255,5 +257,5 @@ func main() {
 
 	port := getEnv("PORT", "8080")
 	log.Printf("membership-service listening on :%s", port)
-	log.Fatal(http.ListenAndServe(":"+port, mux))
+	log.Fatal(http.ListenAndServe(":"+port, tracedHTTPHandler("membership-service", mux)))
 }

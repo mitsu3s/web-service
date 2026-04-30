@@ -47,7 +47,7 @@ type workflowResponse struct {
 
 var (
 	projectServiceURL string
-	httpClient        = &http.Client{}
+	httpClient        = tracedHTTPClient(0)
 
 	workflowRequestsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "workflow_service_requests_total",
@@ -288,6 +288,8 @@ func projectScopedHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	defer initTracing("workflow-service")()
+
 	projectServiceURL = getEnv("PROJECT_SERVICE_URL", "http://project-service:8080")
 
 	mux := http.NewServeMux()
@@ -299,5 +301,5 @@ func main() {
 
 	port := getEnv("PORT", "8080")
 	log.Printf("workflow-service listening on :%s", port)
-	log.Fatal(http.ListenAndServe(":"+port, mux))
+	log.Fatal(http.ListenAndServe(":"+port, tracedHTTPHandler("workflow-service", mux)))
 }

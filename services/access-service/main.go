@@ -48,7 +48,7 @@ type authorizeTaskResponse struct {
 var (
 	membershipServiceURL string
 	boardQueryServiceURL string
-	httpClient           = &http.Client{Timeout: 5 * time.Second}
+	httpClient           = tracedHTTPClient(5 * time.Second)
 
 	accessChecksTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "access_service_checks_total",
@@ -268,6 +268,8 @@ func authorizeTaskHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	defer initTracing("access-service")()
+
 	membershipServiceURL = getEnv("MEMBERSHIP_SERVICE_URL", "http://membership-service:8080")
 	boardQueryServiceURL = getEnv("BOARD_QUERY_SERVICE_URL", "http://board-query-service:8080")
 
@@ -281,5 +283,5 @@ func main() {
 
 	port := getEnv("PORT", "8080")
 	log.Printf("access-service listening on :%s", port)
-	log.Fatal(http.ListenAndServe(":"+port, mux))
+	log.Fatal(http.ListenAndServe(":"+port, tracedHTTPHandler("access-service", mux)))
 }
