@@ -8,6 +8,11 @@ service:
   port: 8080
 env:
   RABBITMQ_URL: "amqp://devboard:devboard123@rabbitmq:5672/"
+  OTEL_SERVICE_NAME: "notification-service"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.monitoring.svc.cluster.local:4318"
+  OTEL_TRACES_EXPORTER: "otlp"
+  OTEL_TRACES_SAMPLER: "parentbased_traceidratio"
+  OTEL_TRACES_SAMPLER_ARG: "1.0"
 resources:
   requests:
     cpu: 50m
