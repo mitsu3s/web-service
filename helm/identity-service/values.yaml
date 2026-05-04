@@ -2,7 +2,7 @@ replicaCount: 1
 image:
   repository: ghcr.io/mitsu3s/devboard-identity-service
   pullPolicy: IfNotPresent
-  tag: "ec49e5c2a664c7ea2fb977ec8395abbd8f89538f"
+  tag: "b3d31a9679de77e6dba5923f2b01cff267ee001d"
 service:
   type: ClusterIP
   port: 8080
