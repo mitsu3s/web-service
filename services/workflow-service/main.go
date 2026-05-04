@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.uber.org/zap"
 )
 
 type projectMetadata struct {
@@ -288,6 +288,7 @@ func projectScopedHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	defer initLogging("workflow-service")()
 	defer initTracing("workflow-service")()
 
 	projectServiceURL = getEnv("PROJECT_SERVICE_URL", "http://project-service:8080")
@@ -300,6 +301,8 @@ func main() {
 	mux.Handle("/metrics", promhttp.Handler())
 
 	port := getEnv("PORT", "8080")
-	log.Printf("workflow-service listening on :%s", port)
-	log.Fatal(http.ListenAndServe(":"+port, tracedHTTPHandler("workflow-service", mux)))
+	logger.Info("workflow-service listening", zap.String("port", port))
+	if err := http.ListenAndServe(":"+port, tracedHTTPHandler("workflow-service", mux)); err != nil {
+		logger.Fatal("server failed", zap.Error(err))
+	}
 }

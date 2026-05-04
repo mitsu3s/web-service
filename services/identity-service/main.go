@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"time"
@@ -11,10 +10,10 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 )
 
 // ---- Models ----------------------------------------------------------------
@@ -63,22 +62,22 @@ func initDB() {
 	var err error
 	for i := 1; i <= 15; i++ {
 		db, err = gorm.Open(mysql.Open(dsn), &gorm.Config{
-			Logger: logger.Default.LogMode(logger.Info),
+			Logger: newZapGormLogger(),
 		})
 		if err == nil {
 			break
 		}
-		log.Printf("MySQL not ready (attempt %d/15): %v", i, err)
+		logger.Warn("MySQL not ready", zap.Int("attempt", i), zap.Error(err))
 		time.Sleep(5 * time.Second)
 	}
 	if err != nil {
-		log.Fatalf("failed to connect to MySQL: %v", err)
+		logger.Fatal("failed to connect to MySQL", zap.Error(err))
 	}
 
 	if err := db.AutoMigrate(&User{}); err != nil {
-		log.Fatalf("AutoMigrate failed: %v", err)
+		logger.Fatal("AutoMigrate failed", zap.Error(err))
 	}
-	log.Println("MySQL connected and migrated")
+	logger.Info("MySQL connected and migrated")
 }
 
 // ---- Helpers ---------------------------------------------------------------
@@ -187,6 +186,8 @@ func meHandler(w http.ResponseWriter, r *http.Request) {
 // ---- Main ------------------------------------------------------------------
 
 func main() {
+	defer initLogging("identity-service")()
+
 	initDB()
 
 	mux := http.NewServeMux()
@@ -208,6 +209,8 @@ func main() {
 	if port == "" {
 		port = "8080"
 	}
-	log.Printf("identity-service listening on :%s", port)
-	log.Fatal(http.ListenAndServe(":"+port, mux))
+	logger.Info("identity-service listening", zap.String("port", port))
+	if err := http.ListenAndServe(":"+port, mux); err != nil {
+		logger.Fatal("server failed", zap.Error(err))
+	}
 }

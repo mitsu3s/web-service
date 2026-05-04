@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -11,9 +10,9 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.uber.org/zap"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 )
 
 type ProjectMembership struct {
@@ -67,21 +66,21 @@ func initDB() {
 	var err error
 	for i := 1; i <= 15; i++ {
 		db, err = gorm.Open(mysql.Open(dsn), &gorm.Config{
-			Logger: logger.Default.LogMode(logger.Info),
+			Logger: newZapGormLogger(),
 		})
 		if err == nil {
 			break
 		}
-		log.Printf("MySQL not ready (%d/15): %v", i, err)
+		logger.Warn("MySQL not ready", zap.Int("attempt", i), zap.Error(err))
 		time.Sleep(5 * time.Second)
 	}
 	if err != nil {
-		log.Fatalf("failed to connect MySQL: %v", err)
+		logger.Fatal("failed to connect MySQL", zap.Error(err))
 	}
 	if err := db.AutoMigrate(&ProjectMembership{}); err != nil {
-		log.Fatalf("AutoMigrate failed: %v", err)
+		logger.Fatal("AutoMigrate failed", zap.Error(err))
 	}
-	log.Println("MySQL connected")
+	logger.Info("MySQL connected")
 }
 
 func jsonResp(w http.ResponseWriter, code int, v any) {
@@ -237,6 +236,7 @@ func internalMembershipsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	defer initLogging("membership-service")()
 	defer initTracing("membership-service")()
 
 	initDB()
@@ -256,6 +256,8 @@ func main() {
 	mux.Handle("/metrics", promhttp.Handler())
 
 	port := getEnv("PORT", "8080")
-	log.Printf("membership-service listening on :%s", port)
-	log.Fatal(http.ListenAndServe(":"+port, tracedHTTPHandler("membership-service", mux)))
+	logger.Info("membership-service listening", zap.String("port", port))
+	if err := http.ListenAndServe(":"+port, tracedHTTPHandler("membership-service", mux)); err != nil {
+		logger.Fatal("server failed", zap.Error(err))
+	}
 }
