@@ -247,9 +247,13 @@ func handleDelivery(ctx context.Context, msg amqp.Delivery) error {
 		log.Printf("invalid task event payload: %v", err)
 		return nil
 	}
+	ctx, span := startAMQPConsumerSpan(ctx, msg, evt.Type, evt.EventID, evt.TaskID, evt.ProjectID)
+	defer span.End()
 
 	if evt.Type == "task.deleted" {
-		return db.WithContext(ctx).Delete(&TaskView{}, "task_id = ?", evt.TaskID).Error
+		err := db.WithContext(ctx).Delete(&TaskView{}, "task_id = ?", evt.TaskID).Error
+		recordSpanError(span, err)
+		return err
 	}
 
 	view := TaskView{
@@ -262,7 +266,9 @@ func handleDelivery(ctx context.Context, msg amqp.Delivery) error {
 		OccurredAt:  evt.OccurredAt,
 		UpdatedAt:   evt.OccurredAt,
 	}
-	return upsertTaskView(ctx, view)
+	err := upsertTaskView(ctx, view)
+	recordSpanError(span, err)
+	return err
 }
 
 func tasksHandler(w http.ResponseWriter, r *http.Request) {

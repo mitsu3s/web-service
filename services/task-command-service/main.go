@@ -39,6 +39,8 @@ type OutboxEvent struct {
 	EventID     string `gorm:"type:varchar(64);uniqueIndex;not null"`
 	RoutingKey  string `gorm:"type:varchar(64);not null;index"`
 	Payload     string `gorm:"type:text;not null"`
+	Traceparent string `gorm:"type:varchar(128)"`
+	Tracestate  string `gorm:"type:varchar(512)"`
 	PublishedAt *time.Time
 	CreatedAt   time.Time
 }
@@ -165,7 +167,7 @@ func (p *amqpPublisher) ensureLocked() error {
 	return nil
 }
 
-func (p *amqpPublisher) Publish(ctx context.Context, routingKey string, body []byte) error {
+func (p *amqpPublisher) Publish(ctx context.Context, routingKey string, body []byte, headers amqp.Table) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -177,6 +179,7 @@ func (p *amqpPublisher) Publish(ctx context.Context, routingKey string, body []b
 		DeliveryMode: amqp.Persistent,
 		Timestamp:    time.Now().UTC(),
 		Body:         body,
+		Headers:      headers,
 	})
 	if err == nil {
 		return nil
@@ -191,6 +194,7 @@ func (p *amqpPublisher) Publish(ctx context.Context, routingKey string, body []b
 		DeliveryMode: amqp.Persistent,
 		Timestamp:    time.Now().UTC(),
 		Body:         body,
+		Headers:      headers,
 	})
 }
 
@@ -224,7 +228,7 @@ func newEventID() string {
 	return hex.EncodeToString(buf)
 }
 
-func enqueueTaskEvent(tx *gorm.DB, eventType string, task Task) error {
+func enqueueTaskEvent(ctx context.Context, tx *gorm.DB, eventType string, task Task) error {
 	event := TaskEvent{
 		EventID:     newEventID(),
 		Type:        eventType,
@@ -241,11 +245,14 @@ func enqueueTaskEvent(tx *gorm.DB, eventType string, task Task) error {
 	if err != nil {
 		return err
 	}
+	traceparent, tracestate := traceContextFromContext(ctx)
 
 	return tx.Create(&OutboxEvent{
-		EventID:    event.EventID,
-		RoutingKey: event.Type,
-		Payload:    string(body),
+		EventID:     event.EventID,
+		RoutingKey:  event.Type,
+		Payload:     string(body),
+		Traceparent: traceparent,
+		Tracestate:  tracestate,
 	}).Error
 }
 
@@ -261,7 +268,7 @@ func dispatchPendingOutbox(ctx context.Context) {
 	}
 
 	for _, evt := range events {
-		if err := publisher.Publish(ctx, evt.RoutingKey, []byte(evt.Payload)); err != nil {
+		if err := publishOutboxEvent(ctx, publisher, evt); err != nil {
 			outboxPublishFailuresTotal.Inc()
 			log.Printf("failed to publish outbox event %s: %v", evt.EventID, err)
 			return
@@ -334,7 +341,7 @@ func tasksHandler(w http.ResponseWriter, r *http.Request) {
 		if err := tx.Create(&task).Error; err != nil {
 			return err
 		}
-		return enqueueTaskEvent(tx, "task.created", task)
+		return enqueueTaskEvent(r.Context(), tx, "task.created", task)
 	}); err != nil {
 		jsonResp(w, http.StatusInternalServerError, map[string]string{"error": "failed to create task"})
 		return
@@ -399,7 +406,7 @@ func taskHandler(w http.ResponseWriter, r *http.Request) {
 			if err := tx.Save(&task).Error; err != nil {
 				return err
 			}
-			return enqueueTaskEvent(tx, "task.updated", task)
+			return enqueueTaskEvent(r.Context(), tx, "task.updated", task)
 		}); err != nil {
 			jsonResp(w, http.StatusInternalServerError, map[string]string{"error": "failed to update task"})
 			return
@@ -417,7 +424,7 @@ func taskHandler(w http.ResponseWriter, r *http.Request) {
 			if err := tx.Delete(&task).Error; err != nil {
 				return err
 			}
-			return enqueueTaskEvent(tx, "task.deleted", task)
+			return enqueueTaskEvent(r.Context(), tx, "task.deleted", task)
 		}); err != nil {
 			jsonResp(w, http.StatusInternalServerError, map[string]string{"error": "failed to delete task"})
 			return
