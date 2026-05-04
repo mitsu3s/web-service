@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -15,10 +14,10 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	amqp "github.com/rabbitmq/amqp091-go"
+	"go.uber.org/zap"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
-	"gorm.io/gorm/logger"
 )
 
 type TaskEvent struct {
@@ -98,21 +97,21 @@ func initDB() {
 	var err error
 	for i := 1; i <= 15; i++ {
 		db, err = gorm.Open(mysql.Open(dsn), &gorm.Config{
-			Logger: logger.Default.LogMode(logger.Info),
+			Logger: newZapGormLogger(),
 		})
 		if err == nil {
 			break
 		}
-		log.Printf("MySQL not ready (%d/15): %v", i, err)
+		logger.Warn("MySQL not ready", zap.Int("attempt", i), zap.Error(err))
 		time.Sleep(5 * time.Second)
 	}
 	if err != nil {
-		log.Fatalf("failed to connect MySQL: %v", err)
+		logger.Fatal("failed to connect MySQL", zap.Error(err))
 	}
 	if err := db.AutoMigrate(&TaskView{}); err != nil {
-		log.Fatalf("AutoMigrate failed: %v", err)
+		logger.Fatal("AutoMigrate failed", zap.Error(err))
 	}
-	log.Println("MySQL connected")
+	logger.Info("MySQL connected")
 }
 
 func jsonResp(w http.ResponseWriter, code int, v any) {
@@ -151,7 +150,7 @@ func upsertTaskView(ctx context.Context, view TaskView) error {
 func backfillTaskViews(ctx context.Context) {
 	var tasks []sourceTask
 	if err := db.WithContext(ctx).Find(&tasks).Error; err != nil {
-		log.Printf("board-query backfill failed: %v", err)
+		logger.Error("board-query backfill failed", zap.Error(err))
 		querySyncTotal.WithLabelValues("backfill", "error").Inc()
 		return
 	}
@@ -169,7 +168,7 @@ func backfillTaskViews(ctx context.Context) {
 			UpdatedAt:   task.UpdatedAt,
 		}
 		if err := upsertTaskView(ctx, view); err != nil {
-			log.Printf("board-query backfill upsert failed: %v", err)
+			logger.Error("board-query backfill upsert failed", zap.Error(err))
 			querySyncTotal.WithLabelValues("backfill", "error").Inc()
 			return
 		}
@@ -181,7 +180,7 @@ func consumeEvents(ctx context.Context, rabbitURL string) {
 	for {
 		if err := consumeOnce(ctx, rabbitURL); err != nil {
 			rabbitReady.Store(false)
-			log.Printf("board-query consumer stopped: %v", err)
+			logger.Error("board-query consumer stopped", zap.Error(err))
 		}
 		select {
 		case <-ctx.Done():
@@ -230,7 +229,7 @@ func consumeOnce(ctx context.Context, rabbitURL string) error {
 				return fmt.Errorf("delivery channel closed")
 			}
 			if err := handleDelivery(ctx, msg); err != nil {
-				log.Printf("failed to update board projection: %v", err)
+				logger.Error("failed to update board projection", zap.Error(err))
 				_ = msg.Nack(false, true)
 				querySyncTotal.WithLabelValues("event", "error").Inc()
 				continue
@@ -244,7 +243,7 @@ func consumeOnce(ctx context.Context, rabbitURL string) error {
 func handleDelivery(ctx context.Context, msg amqp.Delivery) error {
 	var evt TaskEvent
 	if err := json.Unmarshal(msg.Body, &evt); err != nil {
-		log.Printf("invalid task event payload: %v", err)
+		logger.Warn("invalid task event payload", zap.Error(err))
 		return nil
 	}
 	ctx, span := startAMQPConsumerSpan(ctx, msg, evt.Type, evt.EventID, evt.TaskID, evt.ProjectID)
@@ -358,6 +357,7 @@ func internalTaskHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	defer initLogging("board-query-service")()
 	defer initTracing("board-query-service")()
 
 	initDB()
@@ -385,6 +385,8 @@ func main() {
 	mux.Handle("/metrics", promhttp.Handler())
 
 	port := getEnv("PORT", "8080")
-	log.Printf("board-query-service listening on :%s", port)
-	log.Fatal(http.ListenAndServe(":"+port, tracedHTTPHandler("board-query-service", mux)))
+	logger.Info("board-query-service listening", zap.String("port", port))
+	if err := http.ListenAndServe(":"+port, tracedHTTPHandler("board-query-service", mux)); err != nil {
+		logger.Fatal("server failed", zap.Error(err))
+	}
 }

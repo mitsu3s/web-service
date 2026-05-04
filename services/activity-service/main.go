@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -15,9 +14,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	amqp "github.com/rabbitmq/amqp091-go"
+	"go.uber.org/zap"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 )
 
 type TaskEvent struct {
@@ -71,21 +70,21 @@ func initDB() {
 	var err error
 	for i := 1; i <= 15; i++ {
 		db, err = gorm.Open(mysql.Open(dsn), &gorm.Config{
-			Logger: logger.Default.LogMode(logger.Info),
+			Logger: newZapGormLogger(),
 		})
 		if err == nil {
 			break
 		}
-		log.Printf("MySQL not ready (%d/15): %v", i, err)
+		logger.Warn("MySQL not ready", zap.Int("attempt", i), zap.Error(err))
 		time.Sleep(5 * time.Second)
 	}
 	if err != nil {
-		log.Fatalf("failed to connect MySQL: %v", err)
+		logger.Fatal("failed to connect MySQL", zap.Error(err))
 	}
 	if err := db.AutoMigrate(&Activity{}); err != nil {
-		log.Fatalf("AutoMigrate failed: %v", err)
+		logger.Fatal("AutoMigrate failed", zap.Error(err))
 	}
-	log.Println("MySQL connected")
+	logger.Info("MySQL connected")
 }
 
 func jsonResp(w http.ResponseWriter, code int, v any) {
@@ -136,7 +135,7 @@ func consumeEvents(ctx context.Context, rabbitURL string) {
 	for {
 		if err := consumeOnce(ctx, rabbitURL); err != nil {
 			rabbitReady.Store(false)
-			log.Printf("activity consumer stopped: %v", err)
+			logger.Error("activity consumer stopped", zap.Error(err))
 		}
 
 		select {
@@ -185,7 +184,7 @@ func consumeOnce(ctx context.Context, rabbitURL string) error {
 				return fmt.Errorf("delivery channel closed")
 			}
 			if err := handleDelivery(ctx, msg); err != nil {
-				log.Printf("failed to store activity event: %v", err)
+				logger.Error("failed to store activity event", zap.Error(err))
 				_ = msg.Nack(false, true)
 				continue
 			}
@@ -197,7 +196,7 @@ func consumeOnce(ctx context.Context, rabbitURL string) error {
 func handleDelivery(ctx context.Context, msg amqp.Delivery) error {
 	var evt TaskEvent
 	if err := json.Unmarshal(msg.Body, &evt); err != nil {
-		log.Printf("invalid activity payload: %v", err)
+		logger.Warn("invalid activity payload", zap.Error(err))
 		return nil
 	}
 	ctx, span := startAMQPConsumerSpan(ctx, msg, evt.Type, evt.EventID, evt.TaskID, evt.ProjectID)
@@ -273,6 +272,7 @@ func activityHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	defer initLogging("activity-service")()
 	defer initTracing("activity-service")()
 
 	initDB()
@@ -304,6 +304,8 @@ func main() {
 	if port == "" {
 		port = "8080"
 	}
-	log.Printf("activity-service listening on :%s", port)
-	log.Fatal(http.ListenAndServe(":"+port, tracedHTTPHandler("activity-service", mux)))
+	logger.Info("activity-service listening", zap.String("port", port))
+	if err := http.ListenAndServe(":"+port, tracedHTTPHandler("activity-service", mux)); err != nil {
+		logger.Fatal("server failed", zap.Error(err))
+	}
 }

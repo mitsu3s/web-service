@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -14,9 +13,9 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.uber.org/zap"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 )
 
 type Project struct {
@@ -74,21 +73,21 @@ func initDB() {
 	var err error
 	for i := 1; i <= 15; i++ {
 		db, err = gorm.Open(mysql.Open(dsn), &gorm.Config{
-			Logger: logger.Default.LogMode(logger.Info),
+			Logger: newZapGormLogger(),
 		})
 		if err == nil {
 			break
 		}
-		log.Printf("MySQL not ready (%d/15): %v", i, err)
+		logger.Warn("MySQL not ready", zap.Int("attempt", i), zap.Error(err))
 		time.Sleep(5 * time.Second)
 	}
 	if err != nil {
-		log.Fatalf("failed to connect MySQL: %v", err)
+		logger.Fatal("failed to connect MySQL", zap.Error(err))
 	}
 	if err := db.AutoMigrate(&Project{}); err != nil {
-		log.Fatalf("AutoMigrate failed: %v", err)
+		logger.Fatal("AutoMigrate failed", zap.Error(err))
 	}
-	log.Println("MySQL connected")
+	logger.Info("MySQL connected")
 }
 
 func jsonResp(w http.ResponseWriter, code int, v any) {
@@ -187,7 +186,10 @@ func projectsHandler(w http.ResponseWriter, r *http.Request) {
 
 	if err := ensureOwnerMembership(r.Context(), project.ID, userID); err != nil {
 		_ = db.WithContext(r.Context()).Delete(&Project{}, project.ID).Error
-		log.Printf("failed to create owner membership for project %d: %v", project.ID, err)
+		logFromContext(r.Context()).Error("failed to create owner membership",
+			zap.Uint("project_id", project.ID),
+			zap.Error(err),
+		)
 		jsonResp(w, http.StatusBadGateway, map[string]string{"error": "membership-service unavailable"})
 		return
 	}
@@ -258,6 +260,7 @@ func projectByIDHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	defer initLogging("project-service")()
 	defer initTracing("project-service")()
 
 	initDB()
@@ -278,6 +281,8 @@ func main() {
 	mux.Handle("/metrics", promhttp.Handler())
 
 	port := getEnv("PORT", "8080")
-	log.Printf("project-service listening on :%s", port)
-	log.Fatal(http.ListenAndServe(":"+port, tracedHTTPHandler("project-service", mux)))
+	logger.Info("project-service listening", zap.String("port", port))
+	if err := http.ListenAndServe(":"+port, tracedHTTPHandler("project-service", mux)); err != nil {
+		logger.Fatal("server failed", zap.Error(err))
+	}
 }

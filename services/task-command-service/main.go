@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -18,9 +17,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	amqp "github.com/rabbitmq/amqp091-go"
+	"go.uber.org/zap"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 )
 
 type Task struct {
@@ -105,21 +104,21 @@ func initMySQL() {
 	var err error
 	for i := 1; i <= 15; i++ {
 		db, err = gorm.Open(mysql.Open(dsn), &gorm.Config{
-			Logger: logger.Default.LogMode(logger.Info),
+			Logger: newZapGormLogger(),
 		})
 		if err == nil {
 			break
 		}
-		log.Printf("MySQL not ready (%d/15): %v", i, err)
+		logger.Warn("MySQL not ready", zap.Int("attempt", i), zap.Error(err))
 		time.Sleep(5 * time.Second)
 	}
 	if err != nil {
-		log.Fatalf("failed to connect MySQL: %v", err)
+		logger.Fatal("failed to connect MySQL", zap.Error(err))
 	}
 	if err := db.AutoMigrate(&Task{}, &OutboxEvent{}); err != nil {
-		log.Fatalf("AutoMigrate failed: %v", err)
+		logger.Fatal("AutoMigrate failed", zap.Error(err))
 	}
-	log.Println("MySQL connected")
+	logger.Info("MySQL connected")
 }
 
 func newPublisher(url, exchange string) *amqpPublisher {
@@ -263,14 +262,14 @@ func dispatchPendingOutbox(ctx context.Context) {
 		Order("id ASC").
 		Limit(50).
 		Find(&events).Error; err != nil {
-		log.Printf("failed to load outbox events: %v", err)
+		logger.Error("failed to load outbox events", zap.Error(err))
 		return
 	}
 
 	for _, evt := range events {
 		if err := publishOutboxEvent(ctx, publisher, evt); err != nil {
 			outboxPublishFailuresTotal.Inc()
-			log.Printf("failed to publish outbox event %s: %v", evt.EventID, err)
+			logger.Error("failed to publish outbox event", zap.String("event_id", evt.EventID), zap.Error(err))
 			return
 		}
 
@@ -280,7 +279,7 @@ func dispatchPendingOutbox(ctx context.Context) {
 			Where("id = ? AND published_at IS NULL", evt.ID).
 			Update("published_at", &now).Error; err != nil {
 			outboxPublishFailuresTotal.Inc()
-			log.Printf("failed to mark outbox event %s published: %v", evt.EventID, err)
+			logger.Error("failed to mark outbox event published", zap.String("event_id", evt.EventID), zap.Error(err))
 			return
 		}
 		outboxPublishedTotal.Inc()
@@ -343,10 +342,16 @@ func tasksHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		return enqueueTaskEvent(r.Context(), tx, "task.created", task)
 	}); err != nil {
+		logFromContext(r.Context()).Error("failed to create task", zap.Error(err))
 		jsonResp(w, http.StatusInternalServerError, map[string]string{"error": "failed to create task"})
 		return
 	}
 
+	logFromContext(r.Context()).Info("task created",
+		zap.Uint("task_id", task.ID),
+		zap.Uint("user_id", userID),
+		zap.Uint("project_id", task.ProjectID),
+	)
 	taskCommandsTotal.WithLabelValues("create").Inc()
 	jsonResp(w, http.StatusCreated, task)
 }
@@ -408,10 +413,15 @@ func taskHandler(w http.ResponseWriter, r *http.Request) {
 			}
 			return enqueueTaskEvent(r.Context(), tx, "task.updated", task)
 		}); err != nil {
+			logFromContext(r.Context()).Error("failed to update task", zap.Uint("task_id", task.ID), zap.Error(err))
 			jsonResp(w, http.StatusInternalServerError, map[string]string{"error": "failed to update task"})
 			return
 		}
 
+		logFromContext(r.Context()).Info("task updated",
+			zap.Uint("task_id", task.ID),
+			zap.Uint("user_id", userID),
+		)
 		taskCommandsTotal.WithLabelValues("update").Inc()
 		jsonResp(w, http.StatusOK, task)
 
@@ -426,10 +436,15 @@ func taskHandler(w http.ResponseWriter, r *http.Request) {
 			}
 			return enqueueTaskEvent(r.Context(), tx, "task.deleted", task)
 		}); err != nil {
+			logFromContext(r.Context()).Error("failed to delete task", zap.Uint("task_id", task.ID), zap.Error(err))
 			jsonResp(w, http.StatusInternalServerError, map[string]string{"error": "failed to delete task"})
 			return
 		}
 
+		logFromContext(r.Context()).Info("task deleted",
+			zap.Uint("task_id", task.ID),
+			zap.Uint("user_id", userID),
+		)
 		taskCommandsTotal.WithLabelValues("delete").Inc()
 		w.WriteHeader(http.StatusNoContent)
 
@@ -439,6 +454,7 @@ func taskHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	defer initLogging("task-command-service")()
 	defer initTracing("task-command-service")()
 
 	initMySQL()
@@ -466,6 +482,8 @@ func main() {
 	mux.Handle("/metrics", promhttp.Handler())
 
 	port := getEnv("PORT", "8080")
-	log.Printf("task-command-service listening on :%s", port)
-	log.Fatal(http.ListenAndServe(":"+port, tracedHTTPHandler("task-command-service", mux)))
+	logger.Info("task-command-service listening", zap.String("port", port))
+	if err := http.ListenAndServe(":"+port, tracedHTTPHandler("task-command-service", mux)); err != nil {
+		logger.Fatal("server failed", zap.Error(err))
+	}
 }
