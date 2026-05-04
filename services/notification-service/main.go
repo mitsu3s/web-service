@@ -158,14 +158,20 @@ func consumeOnce(ctx context.Context, rabbitURL string) error {
 			if !ok {
 				return fmt.Errorf("delivery channel closed")
 			}
-			var evt TaskEvent
-			if err := json.Unmarshal(msg.Body, &evt); err != nil {
-				log.Printf("failed to decode task event: %v", err)
-				continue
-			}
-			hub.broadcast(evt)
+			handleDelivery(ctx, msg)
 		}
 	}
+}
+
+func handleDelivery(ctx context.Context, msg amqp.Delivery) {
+	var evt TaskEvent
+	if err := json.Unmarshal(msg.Body, &evt); err != nil {
+		log.Printf("failed to decode task event: %v", err)
+		return
+	}
+	_, span := startAMQPConsumerSpan(ctx, msg, evt.Type, evt.EventID, evt.TaskID, evt.ProjectID)
+	defer span.End()
+	hub.broadcast(evt)
 }
 
 func eventsHandler(w http.ResponseWriter, r *http.Request) {
@@ -215,6 +221,8 @@ func eventsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	defer initTracing("notification-service")()
+
 	rabbitURL := os.Getenv("RABBITMQ_URL")
 	if rabbitURL == "" {
 		rabbitURL = "amqp://devboard:devboard123@rabbitmq:5672/"
@@ -234,5 +242,5 @@ func main() {
 		port = "8080"
 	}
 	log.Printf("notification-service listening on :%s", port)
-	log.Fatal(http.ListenAndServe(":"+port, mux))
+	log.Fatal(http.ListenAndServe(":"+port, tracedHTTPHandler("notification-service", mux)))
 }

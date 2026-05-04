@@ -49,7 +49,7 @@ type Activity struct {
 var (
 	db               *gorm.DB
 	accessServiceURL string
-	httpClient       = &http.Client{Timeout: 5 * time.Second}
+	httpClient       = tracedHTTPClient(5 * time.Second)
 	rabbitReady      atomic.Bool
 
 	activityEventsStoredTotal = prometheus.NewCounter(prometheus.CounterOpts{
@@ -200,6 +200,8 @@ func handleDelivery(ctx context.Context, msg amqp.Delivery) error {
 		log.Printf("invalid activity payload: %v", err)
 		return nil
 	}
+	ctx, span := startAMQPConsumerSpan(ctx, msg, evt.Type, evt.EventID, evt.TaskID, evt.ProjectID)
+	defer span.End()
 
 	activity := Activity{
 		EventID:     evt.EventID,
@@ -216,6 +218,7 @@ func handleDelivery(ctx context.Context, msg amqp.Delivery) error {
 		if strings.Contains(err.Error(), "Duplicate entry") {
 			return nil
 		}
+		recordSpanError(span, err)
 		return err
 	}
 	activityEventsStoredTotal.Inc()
@@ -270,6 +273,8 @@ func activityHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	defer initTracing("activity-service")()
+
 	initDB()
 
 	accessServiceURL = os.Getenv("ACCESS_SERVICE_URL")
@@ -300,5 +305,5 @@ func main() {
 		port = "8080"
 	}
 	log.Printf("activity-service listening on :%s", port)
-	log.Fatal(http.ListenAndServe(":"+port, mux))
+	log.Fatal(http.ListenAndServe(":"+port, tracedHTTPHandler("activity-service", mux)))
 }
