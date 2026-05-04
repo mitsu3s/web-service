@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -14,6 +13,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.uber.org/zap"
 )
 
 type taskMetadata struct {
@@ -180,7 +180,7 @@ func projectAccessHandler(w http.ResponseWriter, r *http.Request) {
 
 	access, status, err := loadProjectAccess(r.Context(), userID, uint(projectID))
 	if err != nil {
-		log.Printf("project access lookup failed: %v", err)
+		logFromContext(r.Context()).Error("project access lookup failed", zap.Error(err))
 		accessChecksTotal.WithLabelValues("project", "error").Inc()
 		jsonResp(w, http.StatusBadGateway, map[string]string{"error": "membership-service unavailable"})
 		return
@@ -220,7 +220,7 @@ func authorizeTaskHandler(w http.ResponseWriter, r *http.Request) {
 		var err error
 		task, status, err = loadTaskMetadata(r.Context(), req.TaskID)
 		if err != nil {
-			log.Printf("task lookup failed: %v", err)
+			logFromContext(r.Context()).Error("task lookup failed", zap.Error(err))
 			accessChecksTotal.WithLabelValues("task", "error").Inc()
 			jsonResp(w, http.StatusBadGateway, map[string]string{"error": "board-query-service unavailable"})
 			return
@@ -240,7 +240,7 @@ func authorizeTaskHandler(w http.ResponseWriter, r *http.Request) {
 
 	access, status, err := loadProjectAccess(r.Context(), userID, projectID)
 	if err != nil {
-		log.Printf("membership lookup failed: %v", err)
+		logFromContext(r.Context()).Error("membership lookup failed", zap.Error(err))
 		accessChecksTotal.WithLabelValues("task", "error").Inc()
 		jsonResp(w, http.StatusBadGateway, map[string]string{"error": "membership-service unavailable"})
 		return
@@ -268,6 +268,7 @@ func authorizeTaskHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	defer initLogging("access-service")()
 	defer initTracing("access-service")()
 
 	membershipServiceURL = getEnv("MEMBERSHIP_SERVICE_URL", "http://membership-service:8080")
@@ -282,6 +283,8 @@ func main() {
 	mux.Handle("/metrics", promhttp.Handler())
 
 	port := getEnv("PORT", "8080")
-	log.Printf("access-service listening on :%s", port)
-	log.Fatal(http.ListenAndServe(":"+port, tracedHTTPHandler("access-service", mux)))
+	logger.Info("access-service listening", zap.String("port", port))
+	if err := http.ListenAndServe(":"+port, tracedHTTPHandler("access-service", mux)); err != nil {
+		logger.Fatal("server failed", zap.Error(err))
+	}
 }

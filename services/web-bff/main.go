@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"log"
 	"math"
 	"net/http"
 	"net/http/httputil"
@@ -15,6 +14,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.uber.org/zap"
 )
 
 var (
@@ -63,7 +63,7 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 func newProxy(rawURL string) *httputil.ReverseProxy {
 	u, err := url.Parse(rawURL)
 	if err != nil {
-		log.Fatalf("invalid upstream URL %s: %v", rawURL, err)
+		logger.Fatal("invalid upstream URL", zap.String("url", rawURL), zap.Error(err))
 	}
 	return &httputil.ReverseProxy{
 		Transport: tracedHTTPTransport(),
@@ -75,7 +75,7 @@ func newProxy(rawURL string) *httputil.ReverseProxy {
 			}
 		},
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, proxyErr error) {
-			log.Printf("proxy error to %s: %v", rawURL, proxyErr)
+			logFromContext(r.Context()).Error("proxy error", zap.String("upstream", rawURL), zap.Error(proxyErr))
 			writeJSON(w, http.StatusBadGateway, map[string]string{"error": "upstream unavailable"})
 		},
 	}
@@ -216,6 +216,7 @@ func withMetrics(next http.Handler) http.Handler {
 }
 
 func main() {
+	defer initLogging("web-bff")()
 	defer initTracing("web-bff")()
 
 	identityServiceURL = getEnv("IDENTITY_SERVICE_URL", "http://identity-service:8080")
@@ -263,6 +264,8 @@ func main() {
 	mux.Handle("/", frontendProxy)
 
 	port := getEnv("PORT", "8080")
-	log.Printf("web-bff listening on :%s", port)
-	log.Fatal(http.ListenAndServe(":"+port, tracedHTTPHandler("web-bff", withMetrics(mux))))
+	logger.Info("web-bff listening", zap.String("port", port))
+	if err := http.ListenAndServe(":"+port, tracedHTTPHandler("web-bff", withMetrics(mux))); err != nil {
+		logger.Fatal("server failed", zap.Error(err))
+	}
 }

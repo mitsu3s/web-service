@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -16,6 +15,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.uber.org/zap"
 )
 
 type taskMetadata struct {
@@ -170,7 +170,7 @@ func writeUpstreamError(w http.ResponseWriter, err error) {
 		jsonResp(w, statusErr.StatusCode, map[string]string{"error": body})
 		return
 	}
-	log.Printf("task-orchestrator upstream failed: %v", err)
+	logFromContext(context.Background()).Error("task-orchestrator upstream failed", zap.Error(err))
 	jsonResp(w, http.StatusBadGateway, map[string]string{"error": "upstream unavailable"})
 }
 
@@ -366,6 +366,7 @@ func taskHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	defer initLogging("task-orchestrator-service")()
 	defer initTracing("task-orchestrator-service")()
 
 	accessServiceURL = getEnv("ACCESS_SERVICE_URL", "http://access-service:8080")
@@ -381,6 +382,8 @@ func main() {
 	mux.Handle("/metrics", promhttp.Handler())
 
 	port := getEnv("PORT", "8080")
-	log.Printf("task-orchestrator-service listening on :%s", port)
-	log.Fatal(http.ListenAndServe(":"+port, tracedHTTPHandler("task-orchestrator-service", mux)))
+	logger.Info("task-orchestrator-service listening", zap.String("port", port))
+	if err := http.ListenAndServe(":"+port, tracedHTTPHandler("task-orchestrator-service", mux)); err != nil {
+		logger.Fatal("server failed", zap.Error(err))
+	}
 }

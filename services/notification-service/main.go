@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -15,6 +14,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	amqp "github.com/rabbitmq/amqp091-go"
+	"go.uber.org/zap"
 )
 
 type TaskEvent struct {
@@ -108,7 +108,7 @@ func consumeEvents(ctx context.Context, rabbitURL string) {
 	for {
 		if err := consumeOnce(ctx, rabbitURL); err != nil {
 			rabbitReady.Store(false)
-			log.Printf("rabbitmq consumer stopped: %v", err)
+			logger.Error("rabbitmq consumer stopped", zap.Error(err))
 		}
 
 		select {
@@ -166,7 +166,7 @@ func consumeOnce(ctx context.Context, rabbitURL string) error {
 func handleDelivery(ctx context.Context, msg amqp.Delivery) {
 	var evt TaskEvent
 	if err := json.Unmarshal(msg.Body, &evt); err != nil {
-		log.Printf("failed to decode task event: %v", err)
+		logger.Warn("failed to decode task event", zap.Error(err))
 		return
 	}
 	_, span := startAMQPConsumerSpan(ctx, msg, evt.Type, evt.EventID, evt.TaskID, evt.ProjectID)
@@ -221,6 +221,7 @@ func eventsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	defer initLogging("notification-service")()
 	defer initTracing("notification-service")()
 
 	rabbitURL := os.Getenv("RABBITMQ_URL")
@@ -241,6 +242,8 @@ func main() {
 	if port == "" {
 		port = "8080"
 	}
-	log.Printf("notification-service listening on :%s", port)
-	log.Fatal(http.ListenAndServe(":"+port, tracedHTTPHandler("notification-service", mux)))
+	logger.Info("notification-service listening", zap.String("port", port))
+	if err := http.ListenAndServe(":"+port, tracedHTTPHandler("notification-service", mux)); err != nil {
+		logger.Fatal("server failed", zap.Error(err))
+	}
 }
