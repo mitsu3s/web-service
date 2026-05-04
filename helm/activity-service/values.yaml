@@ -2,7 +2,7 @@ replicaCount: 1
 image:
   repository: ghcr.io/mitsu3s/devboard-activity-service
   pullPolicy: IfNotPresent
-  tag: "ec49e5c2a664c7ea2fb977ec8395abbd8f89538f"
+  tag: "924355bae5e43cb22d838efd36ad16a95151bbaf"
 service:
   type: ClusterIP
   port: 8080
