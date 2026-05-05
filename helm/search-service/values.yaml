@@ -9,7 +9,7 @@ service:
 env:
   RABBITMQ_URL: "amqp://devboard:devboard123@rabbitmq.devboard.svc.cluster.local:5672/"
   ACCESS_SERVICE_URL: "http://access-service.devboard.svc.cluster.local:8080"
-  ELASTICSEARCH_URL: "https://elasticsearch-es-http.logging.svc.cluster.local:9200"
+  ELASTICSEARCH_URL: "https://elasticsearch-es-http.logging.svc:9200"
   ELASTICSEARCH_USERNAME: "elastic"
   ELASTICSEARCH_CA_CERT_PATH: "/etc/elasticsearch/certs/tls.crt"
   TASKS_INDEX_NAME: "devboard-tasks"
