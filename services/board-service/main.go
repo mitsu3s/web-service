@@ -524,7 +524,7 @@ func main() {
 	accessServiceURL = getEnv("ACCESS_SERVICE_URL", "http://access-service:8080")
 	boardQueryServiceURL = getEnv("BOARD_QUERY_SERVICE_URL", "http://board-query-service:8080")
 	activityServiceURL = getEnv("ACTIVITY_SERVICE_URL", "http://activity-service:8080")
-	searchServiceURL = getEnv("SEARCH_SERVICE_URL", "http://search-service.logging.svc.cluster.local:8080")
+	searchServiceURL = getEnv("SEARCH_SERVICE_URL", "http://search-service:8080")
 	workflowServiceURL = getEnv("WORKFLOW_SERVICE_URL", "http://workflow-service:8080")
 
 	mux := http.NewServeMux()
