@@ -16,7 +16,7 @@ spec:
         - values.yaml
   destination:
     server: https://kubernetes.default.svc
-    namespace: logging
+    namespace: devboard
   syncPolicy:
     automated:
       prune: true
