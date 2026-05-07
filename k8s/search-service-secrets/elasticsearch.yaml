@@ -1,0 +1,96 @@
+---
+# Lab-friendly External Secrets setup:
+# - Source: existing ECK-managed Elasticsearch Secrets in the logging namespace.
+# - Target: search-service-specific Secrets in the devboard namespace.
+#
+# In a production cluster, the SecretStore provider would normally be Vault,
+# AWS Secrets Manager, GCP Secret Manager, etc. The search-service chart should
+# still consume the same target Secret names.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: search-service-secret-reader
+  namespace: devboard
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: search-service-elasticsearch-secret-reader
+  namespace: logging
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["authorization.k8s.io"]
+    resources: ["selfsubjectrulesreviews"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: search-service-elasticsearch-secret-reader
+  namespace: logging
+subjects:
+  - kind: ServiceAccount
+    name: search-service-secret-reader
+    namespace: devboard
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: search-service-elasticsearch-secret-reader
+---
+apiVersion: external-secrets.io/v1
+kind: SecretStore
+metadata:
+  name: logging-elasticsearch
+  namespace: devboard
+spec:
+  provider:
+    kubernetes:
+      remoteNamespace: logging
+      server:
+        caProvider:
+          type: ConfigMap
+          name: kube-root-ca.crt
+          key: ca.crt
+      auth:
+        serviceAccount:
+          name: search-service-secret-reader
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: search-service-elasticsearch-credentials
+  namespace: devboard
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: logging-elasticsearch
+    kind: SecretStore
+  target:
+    name: search-service-elasticsearch-credentials
+    creationPolicy: Owner
+  data:
+    - secretKey: password
+      remoteRef:
+        key: elasticsearch-es-elastic-user
+        property: elastic
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: search-service-elasticsearch-ca
+  namespace: devboard
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: logging-elasticsearch
+    kind: SecretStore
+  target:
+    name: search-service-elasticsearch-ca
+    creationPolicy: Owner
+  data:
+    - secretKey: tls.crt
+      remoteRef:
+        key: elasticsearch-es-http-certs-public
+        property: tls.crt

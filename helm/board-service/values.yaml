@@ -12,7 +12,7 @@ env:
   ACCESS_SERVICE_URL: "http://access-service:8080"
   BOARD_QUERY_SERVICE_URL: "http://board-query-service:8080"
   ACTIVITY_SERVICE_URL: "http://activity-service:8080"
-  SEARCH_SERVICE_URL: "http://search-service.logging.svc.cluster.local:8080"
+  SEARCH_SERVICE_URL: "http://search-service:8080"
   WORKFLOW_SERVICE_URL: "http://workflow-service:8080"
 resources:
   requests:

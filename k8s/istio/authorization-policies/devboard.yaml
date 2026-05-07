@@ -180,6 +180,7 @@ spec:
             principals:
               - cluster.local/ns/devboard/sa/activity-service
               - cluster.local/ns/devboard/sa/board-service
+              - cluster.local/ns/devboard/sa/search-service
               - cluster.local/ns/devboard/sa/task-orchestrator-service
       to:
         - operation:
@@ -257,6 +258,26 @@ spec:
   selector:
     matchLabels:
       app.kubernetes.io/name: activity-service
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/devboard/sa/board-service
+      to:
+        - operation:
+            ports: ["8080"]
+---
+# search-service is a DevBoard read-side API called by board-service.
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: search-service
+  namespace: devboard
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: search-service
   action: ALLOW
   rules:
     - from:

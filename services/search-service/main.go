@@ -123,7 +123,7 @@ func getUserID(r *http.Request) (uint, bool) {
 func newElasticClient() (*elasticClient, error) {
 	baseURL := strings.TrimRight(os.Getenv("ELASTICSEARCH_URL"), "/")
 	if baseURL == "" {
-		baseURL = "https://elasticsearch-es-http.logging.svc.cluster.local:9200"
+		baseURL = "https://elasticsearch-es-http.logging.svc:9200"
 	}
 	indexName := os.Getenv("TASKS_INDEX_NAME")
 	if indexName == "" {
@@ -525,11 +525,11 @@ func main() {
 
 	rabbitURL := os.Getenv("RABBITMQ_URL")
 	if rabbitURL == "" {
-		rabbitURL = "amqp://devboard:devboard123@rabbitmq.devboard.svc.cluster.local:5672/"
+		rabbitURL = "amqp://devboard:devboard123@rabbitmq:5672/"
 	}
 	accessServiceURL = os.Getenv("ACCESS_SERVICE_URL")
 	if accessServiceURL == "" {
-		accessServiceURL = "http://access-service.devboard.svc.cluster.local:8080"
+		accessServiceURL = "http://access-service:8080"
 	}
 	go consumeEvents(context.Background(), rabbitURL)
 
