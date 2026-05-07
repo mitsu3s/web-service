@@ -210,14 +210,16 @@ spec:
     loadBalancer:
       simple: ROUND_ROBIN
 ---
-# search-service: logging namespace is intentionally outside devboard mTLS scope for now.
+# search-service: read-side search API now participates in the devboard mesh.
 apiVersion: networking.istio.io/v1beta1
 kind: DestinationRule
 metadata:
   name: search-service
   namespace: devboard
 spec:
-  host: search-service.logging.svc.cluster.local
+  host: search-service
   trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
     loadBalancer:
       simple: ROUND_ROBIN
