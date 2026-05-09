@@ -121,7 +121,7 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	user := User{Email: req.Email, Password: string(hashed)}
-	if result := db.Create(&user); result.Error != nil {
+	if result := db.WithContext(r.Context()).Create(&user); result.Error != nil {
 		jsonResp(w, http.StatusConflict, map[string]string{"error": "email already exists"})
 		return
 	}
@@ -146,7 +146,7 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var user User
-	if result := db.Where("email = ?", req.Email).First(&user); result.Error != nil {
+	if result := db.WithContext(r.Context()).Where("email = ?", req.Email).First(&user); result.Error != nil {
 		loginsTotal.WithLabelValues("failure").Inc()
 		jsonResp(w, http.StatusUnauthorized, map[string]string{"error": "invalid credentials"})
 		return
@@ -176,7 +176,7 @@ func meHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	userIDStr := r.Header.Get("X-User-ID")
 	var user User
-	if result := db.First(&user, userIDStr); result.Error != nil {
+	if result := db.WithContext(r.Context()).First(&user, userIDStr); result.Error != nil {
 		jsonResp(w, http.StatusNotFound, map[string]string{"error": "user not found"})
 		return
 	}
@@ -187,6 +187,7 @@ func meHandler(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	defer initLogging("identity-service")()
+	defer initTracing("identity-service")()
 
 	initDB()
 
@@ -210,7 +211,7 @@ func main() {
 		port = "8080"
 	}
 	logger.Info("identity-service listening", zap.String("port", port))
-	if err := http.ListenAndServe(":"+port, mux); err != nil {
+	if err := http.ListenAndServe(":"+port, tracedHTTPHandler("identity-service", mux)); err != nil {
 		logger.Fatal("server failed", zap.Error(err))
 	}
 }

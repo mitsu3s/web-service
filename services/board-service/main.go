@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"sort"
@@ -18,6 +17,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.uber.org/zap"
 )
 
 type ProjectMembership struct {
@@ -120,7 +120,7 @@ func (e upstreamStatusError) Error() string {
 }
 
 var (
-	httpClient = &http.Client{Timeout: 10 * time.Second}
+	httpClient = tracedHTTPClient(10 * time.Second)
 
 	membershipServiceURL string
 	projectServiceURL    string
@@ -267,7 +267,7 @@ func loadProjects(ctx context.Context, userID uint) ([]ProjectSummary, error) {
 	return summaries, nil
 }
 
-func writeUpstreamError(w http.ResponseWriter, err error) {
+func writeUpstreamError(ctx context.Context, w http.ResponseWriter, err error) {
 	var statusErr upstreamStatusError
 	if errors.As(err, &statusErr) {
 		body := statusErr.Body
@@ -283,7 +283,7 @@ func writeUpstreamError(w http.ResponseWriter, err error) {
 		jsonResp(w, statusErr.StatusCode, map[string]string{"error": body})
 		return
 	}
-	log.Printf("board-service upstream failed: %v", err)
+	logFromContext(ctx).Error("board-service upstream failed", zap.Error(err))
 	jsonResp(w, http.StatusBadGateway, map[string]string{"error": "upstream unavailable"})
 }
 
@@ -301,7 +301,7 @@ func projectsHandler(w http.ResponseWriter, r *http.Request) {
 
 	projects, err := loadProjects(r.Context(), userID)
 	if err != nil {
-		writeUpstreamError(w, err)
+		writeUpstreamError(r.Context(), w, err)
 		return
 	}
 
@@ -323,7 +323,7 @@ func dashboardHandler(w http.ResponseWriter, r *http.Request) {
 
 	projects, err := loadProjects(r.Context(), userID)
 	if err != nil {
-		writeUpstreamError(w, err)
+		writeUpstreamError(r.Context(), w, err)
 		return
 	}
 
@@ -346,7 +346,7 @@ func dashboardHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := ensureProjectAccess(r.Context(), userID, uint(projectID)); err != nil {
-			writeUpstreamError(w, err)
+			writeUpstreamError(r.Context(), w, err)
 			return
 		}
 		for i := range projects {
@@ -405,7 +405,7 @@ func dashboardHandler(w http.ResponseWriter, r *http.Request) {
 	wg.Wait()
 
 	if fetchErr != nil {
-		writeUpstreamError(w, fetchErr)
+		writeUpstreamError(r.Context(), w, fetchErr)
 		return
 	}
 
@@ -435,14 +435,14 @@ func tasksHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := ensureProjectAccess(r.Context(), userID, uint(projectID)); err != nil {
-			writeUpstreamError(w, err)
+			writeUpstreamError(r.Context(), w, err)
 			return
 		}
 	}
 
 	var tasks []Task
 	if err := fetchJSON(r.Context(), http.MethodGet, strings.TrimRight(boardQueryServiceURL, "/")+r.URL.RequestURI(), userID, nil, &tasks); err != nil {
-		writeUpstreamError(w, err)
+		writeUpstreamError(r.Context(), w, err)
 		return
 	}
 	jsonResp(w, http.StatusOK, tasks)
@@ -462,7 +462,7 @@ func taskByIDHandler(w http.ResponseWriter, r *http.Request) {
 
 	var task Task
 	if err := fetchJSON(r.Context(), http.MethodGet, strings.TrimRight(boardQueryServiceURL, "/")+r.URL.Path, userID, nil, &task); err != nil {
-		writeUpstreamError(w, err)
+		writeUpstreamError(r.Context(), w, err)
 		return
 	}
 	jsonResp(w, http.StatusOK, task)
@@ -487,14 +487,14 @@ func searchTasksHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := ensureProjectAccess(r.Context(), userID, uint(projectID)); err != nil {
-			writeUpstreamError(w, err)
+			writeUpstreamError(r.Context(), w, err)
 			return
 		}
 	}
 
 	var resp searchResponse
 	if err := fetchJSON(r.Context(), http.MethodGet, strings.TrimRight(searchServiceURL, "/")+"/tasks?"+r.URL.RawQuery, userID, nil, &resp); err != nil {
-		writeUpstreamError(w, err)
+		writeUpstreamError(r.Context(), w, err)
 		return
 	}
 	jsonResp(w, http.StatusOK, resp)
@@ -519,6 +519,9 @@ func withMetrics(next http.Handler) http.Handler {
 }
 
 func main() {
+	defer initLogging("board-service")()
+	defer initTracing("board-service")()
+
 	membershipServiceURL = getEnv("MEMBERSHIP_SERVICE_URL", "http://membership-service:8080")
 	projectServiceURL = getEnv("PROJECT_SERVICE_URL", "http://project-service:8080")
 	accessServiceURL = getEnv("ACCESS_SERVICE_URL", "http://access-service:8080")
@@ -539,6 +542,8 @@ func main() {
 	mux.Handle("/metrics", promhttp.Handler())
 
 	port := getEnv("PORT", "8080")
-	log.Printf("board-service listening on :%s", port)
-	log.Fatal(http.ListenAndServe(":"+port, withMetrics(mux)))
+	logger.Info("board-service listening", zap.String("port", port))
+	if err := http.ListenAndServe(":"+port, tracedHTTPHandler("board-service", withMetrics(mux))); err != nil {
+		logger.Fatal("server failed", zap.Error(err))
+	}
 }
