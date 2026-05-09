@@ -13,6 +13,11 @@ env:
   ELASTICSEARCH_USERNAME: "elastic"
   ELASTICSEARCH_CA_CERT_PATH: "/etc/elasticsearch/certs/tls.crt"
   TASKS_INDEX_NAME: "devboard-tasks"
+  OTEL_SERVICE_NAME: "search-service"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.monitoring.svc.cluster.local:4318"
+  OTEL_TRACES_EXPORTER: "otlp"
+  OTEL_TRACES_SAMPLER: "parentbased_traceidratio"
+  OTEL_TRACES_SAMPLER_ARG: "1.0"
 elasticsearch:
   passwordSecret:
     name: search-service-elasticsearch-credentials

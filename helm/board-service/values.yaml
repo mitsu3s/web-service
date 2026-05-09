@@ -14,6 +14,11 @@ env:
   ACTIVITY_SERVICE_URL: "http://activity-service:8080"
   SEARCH_SERVICE_URL: "http://search-service:8080"
   WORKFLOW_SERVICE_URL: "http://workflow-service:8080"
+  OTEL_SERVICE_NAME: "board-service"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.monitoring.svc.cluster.local:4318"
+  OTEL_TRACES_EXPORTER: "otlp"
+  OTEL_TRACES_SAMPLER: "parentbased_traceidratio"
+  OTEL_TRACES_SAMPLER_ARG: "1.0"
 resources:
   requests:
     cpu: 100m
