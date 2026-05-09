@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -19,6 +18,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	amqp "github.com/rabbitmq/amqp091-go"
+	"go.uber.org/zap"
 )
 
 type TaskEvent struct {
@@ -63,7 +63,7 @@ var (
 	indexer          *elasticClient
 	rabbitReady      atomic.Bool
 	accessServiceURL string
-	accessHTTPClient = &http.Client{Timeout: 5 * time.Second}
+	accessHTTPClient = tracedHTTPClient(5 * time.Second)
 
 	searchIndexOperationsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "search_service_index_operations_total",
@@ -152,9 +152,9 @@ func newElasticClient() (*elasticClient, error) {
 		password: os.Getenv("ELASTICSEARCH_PASSWORD"),
 		client: &http.Client{
 			Timeout: 10 * time.Second,
-			Transport: &http.Transport{
+			Transport: tracedHTTPTransport(&http.Transport{
 				TLSClientConfig: tlsConfig,
-			},
+			}),
 		},
 	}, nil
 }
@@ -382,7 +382,7 @@ func consumeEvents(ctx context.Context, rabbitURL string) {
 	for {
 		if err := consumeOnce(ctx, rabbitURL); err != nil {
 			rabbitReady.Store(false)
-			log.Printf("search-service consumer stopped: %v", err)
+			logger.Error("search-service consumer stopped", zap.Error(err))
 		}
 		select {
 		case <-ctx.Done():
@@ -436,20 +436,29 @@ func consumeOnce(ctx context.Context, rabbitURL string) error {
 
 			var evt TaskEvent
 			if err := json.Unmarshal(msg.Body, &evt); err != nil {
-				log.Printf("invalid task event payload: %v", err)
+				logger.Warn("invalid task event payload", zap.Error(err))
 				_ = msg.Ack(false)
 				continue
 			}
 
+			eventCtx, span := startAMQPConsumerSpan(ctx, msg, evt.Type, evt.EventID, evt.TaskID, evt.ProjectID)
 			var handleErr error
 			switch evt.Type {
 			case "task.deleted":
-				handleErr = indexer.deleteTask(ctx, evt)
+				handleErr = indexer.deleteTask(eventCtx, evt)
 			default:
-				handleErr = indexer.upsertTask(ctx, evt)
+				handleErr = indexer.upsertTask(eventCtx, evt)
 			}
+			recordSpanError(span, handleErr)
+			span.End()
 			if handleErr != nil {
-				log.Printf("failed to index task event: %v", handleErr)
+				logFromContext(eventCtx).Error("failed to index task event",
+					zap.String("event_id", evt.EventID),
+					zap.String("event_type", evt.Type),
+					zap.Uint("task_id", evt.TaskID),
+					zap.Uint("project_id", evt.ProjectID),
+					zap.Error(handleErr),
+				)
 				_ = msg.Nack(false, true)
 				continue
 			}
@@ -503,7 +512,7 @@ func searchTasksHandler(w http.ResponseWriter, r *http.Request) {
 	results, total, err := indexer.searchTasks(r.Context(), userID, query, projectID, limit)
 	if err != nil {
 		searchRequestsTotal.WithLabelValues("error").Inc()
-		log.Printf("search request failed: %v", err)
+		logFromContext(r.Context()).Error("search request failed", zap.Error(err))
 		jsonResp(w, http.StatusBadGateway, map[string]string{"error": "search backend unavailable"})
 		return
 	}
@@ -517,10 +526,13 @@ func searchTasksHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	defer initLogging("search-service")()
+	defer initTracing("search-service")()
+
 	var err error
 	indexer, err = newElasticClient()
 	if err != nil {
-		log.Fatalf("failed to configure elasticsearch client: %v", err)
+		logger.Fatal("failed to configure elasticsearch client", zap.Error(err))
 	}
 
 	rabbitURL := os.Getenv("RABBITMQ_URL")
@@ -549,6 +561,8 @@ func main() {
 	if port == "" {
 		port = "8080"
 	}
-	log.Printf("search-service listening on :%s", port)
-	log.Fatal(http.ListenAndServe(":"+port, mux))
+	logger.Info("search-service listening", zap.String("port", port))
+	if err := http.ListenAndServe(":"+port, tracedHTTPHandler("search-service", mux)); err != nil {
+		logger.Fatal("server failed", zap.Error(err))
+	}
 }
