@@ -11,7 +11,7 @@ spec:
     matchLabels:
       {{- include "task-command-service.selectorLabels" . | nindent 6 }}
   endpoints:
-    - port: http
-      path: /metrics
+    - port: http-envoy-prom
+      path: /stats/prometheus
       interval: {{ .Values.serviceMonitor.interval }}
 {{- end }}
