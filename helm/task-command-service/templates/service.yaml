@@ -13,3 +13,9 @@ spec:
       port: {{ .Values.service.port }}
       targetPort: 8080
       protocol: TCP
+{{- if .Values.serviceMonitor.enabled }}
+    - name: http-envoy-prom
+      port: 15020
+      targetPort: 15020
+      protocol: TCP
+{{- end }}

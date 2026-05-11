@@ -12,7 +12,7 @@ spec:
     matchLabels:
       {{- include "web-bff.selectorLabels" . | nindent 6 }}
   endpoints:
-    - port: http
-      path: /metrics
+    - port: http-envoy-prom
+      path: /stats/prometheus
       interval: {{ .Values.serviceMonitor.interval }}
 {{- end }}
