@@ -801,10 +801,32 @@ data:
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(rate(otelcol_exporter_send_failed_spans{exporter=~\".*tempo.*\"}[$__rate_interval]))",
-              "legendFormat": "collector failed spans",
+              "expr": "sum(rate(otelcol_exporter_sent_spans{exporter=\"otlp/tempo\"}[$__rate_interval]))",
+              "legendFormat": "collector sent spans to Tempo",
               "range": true,
               "refId": "B"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum(rate(otelcol_receiver_failed_spans{receiver=\"otlp\"}[$__rate_interval]))",
+              "legendFormat": "collector failed spans",
+              "range": true,
+              "refId": "C"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum(rate(otelcol_receiver_refused_spans{receiver=\"otlp\"}[$__rate_interval]))",
+              "legendFormat": "collector refused spans",
+              "range": true,
+              "refId": "D"
             }
           ],
           "title": "Trace Pipeline",
