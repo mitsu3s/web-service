@@ -790,7 +790,7 @@ data:
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(rate(otelcol_receiver_accepted_spans{receiver=\"otlp\"}[$__rate_interval]))",
+              "expr": "sum(rate(otelcol_receiver_accepted_spans_total{receiver=\"otlp\"}[$__rate_interval])) or sum(rate(otelcol_receiver_accepted_spans{receiver=\"otlp\"}[$__rate_interval]))",
               "legendFormat": "collector accepted spans",
               "range": true,
               "refId": "A"
@@ -801,7 +801,7 @@ data:
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(rate(otelcol_exporter_sent_spans{exporter=\"otlp/tempo\"}[$__rate_interval]))",
+              "expr": "sum(rate(otelcol_exporter_sent_spans_total{exporter=\"otlp/tempo\"}[$__rate_interval])) or sum(rate(otelcol_exporter_sent_spans{exporter=\"otlp/tempo\"}[$__rate_interval]))",
               "legendFormat": "collector sent spans to Tempo",
               "range": true,
               "refId": "B"
@@ -812,7 +812,7 @@ data:
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(rate(otelcol_receiver_failed_spans{receiver=\"otlp\"}[$__rate_interval]))",
+              "expr": "sum(rate(otelcol_receiver_failed_spans_total{receiver=\"otlp\"}[$__rate_interval])) or sum(rate(otelcol_receiver_failed_spans{receiver=\"otlp\"}[$__rate_interval]))",
               "legendFormat": "collector failed spans",
               "range": true,
               "refId": "C"
@@ -823,7 +823,7 @@ data:
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(rate(otelcol_receiver_refused_spans{receiver=\"otlp\"}[$__rate_interval]))",
+              "expr": "sum(rate(otelcol_receiver_refused_spans_total{receiver=\"otlp\"}[$__rate_interval])) or sum(rate(otelcol_receiver_refused_spans{receiver=\"otlp\"}[$__rate_interval]))",
               "legendFormat": "collector refused spans",
               "range": true,
               "refId": "D"
