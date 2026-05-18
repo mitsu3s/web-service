@@ -82,10 +82,18 @@ var (
 		Name: "task_command_outbox_publish_failures_total",
 		Help: "Total outbox publish failures",
 	})
+	outboxPendingEvents = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "task_command_outbox_pending_events",
+		Help: "Number of unpublished task-command outbox events",
+	})
+	rabbitPublisherReady = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "task_command_rabbitmq_publisher_ready",
+		Help: "Whether task-command-service has an active RabbitMQ publisher connection",
+	})
 )
 
 func init() {
-	prometheus.MustRegister(taskCommandsTotal, outboxPublishedTotal, outboxPublishFailuresTotal)
+	prometheus.MustRegister(taskCommandsTotal, outboxPublishedTotal, outboxPublishFailuresTotal, outboxPendingEvents, rabbitPublisherReady)
 }
 
 func getEnv(key, fallback string) string {
@@ -135,6 +143,7 @@ func (p *amqpPublisher) closeLocked() {
 		p.conn = nil
 	}
 	p.ready.Store(false)
+	rabbitPublisherReady.Set(0)
 }
 
 func (p *amqpPublisher) ensureLocked() error {
@@ -145,24 +154,28 @@ func (p *amqpPublisher) ensureLocked() error {
 	conn, err := amqp.Dial(p.url)
 	if err != nil {
 		p.ready.Store(false)
+		rabbitPublisherReady.Set(0)
 		return err
 	}
 	ch, err := conn.Channel()
 	if err != nil {
 		_ = conn.Close()
 		p.ready.Store(false)
+		rabbitPublisherReady.Set(0)
 		return err
 	}
 	if err := ch.ExchangeDeclare(p.exchange, "topic", true, false, false, false, nil); err != nil {
 		_ = ch.Close()
 		_ = conn.Close()
 		p.ready.Store(false)
+		rabbitPublisherReady.Set(0)
 		return err
 	}
 
 	p.conn = conn
 	p.ch = ch
 	p.ready.Store(true)
+	rabbitPublisherReady.Set(1)
 	return nil
 }
 
@@ -256,6 +269,18 @@ func enqueueTaskEvent(ctx context.Context, tx *gorm.DB, eventType string, task T
 }
 
 func dispatchPendingOutbox(ctx context.Context) {
+	var pending int64
+	countedPending := false
+	if err := db.WithContext(ctx).
+		Model(&OutboxEvent{}).
+		Where("published_at IS NULL").
+		Count(&pending).Error; err != nil {
+		logger.Error("failed to count outbox events", zap.Error(err))
+	} else {
+		countedPending = true
+		outboxPendingEvents.Set(float64(pending))
+	}
+
 	var events []OutboxEvent
 	if err := db.WithContext(ctx).
 		Where("published_at IS NULL").
@@ -283,6 +308,10 @@ func dispatchPendingOutbox(ctx context.Context) {
 			return
 		}
 		outboxPublishedTotal.Inc()
+	}
+
+	if countedPending && len(events) > 0 {
+		outboxPendingEvents.Set(float64(max(pending-int64(len(events)), 0)))
 	}
 }
 

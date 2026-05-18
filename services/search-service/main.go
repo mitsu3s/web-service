@@ -73,10 +73,28 @@ var (
 		Name: "search_service_requests_total",
 		Help: "Total search API requests by result",
 	}, []string{"result"})
+	searchQueryDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "search_service_query_duration_seconds",
+		Help:    "Time spent executing search requests against Elasticsearch",
+		Buckets: prometheus.DefBuckets,
+	}, []string{"result"})
+	searchIndexOperationDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "search_service_index_operation_duration_seconds",
+		Help:    "Time spent applying search index operations",
+		Buckets: prometheus.DefBuckets,
+	}, []string{"operation", "result"})
+	searchRabbitConsumerReady = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "search_service_rabbitmq_consumer_ready",
+		Help: "Whether search-service has an active RabbitMQ consumer",
+	})
+	searchElasticsearchReady = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "search_service_elasticsearch_ready",
+		Help: "Whether search-service can reach Elasticsearch",
+	})
 )
 
 func init() {
-	prometheus.MustRegister(searchIndexOperationsTotal, searchRequestsTotal)
+	prometheus.MustRegister(searchIndexOperationsTotal, searchRequestsTotal, searchQueryDuration, searchIndexOperationDuration, searchRabbitConsumerReady, searchElasticsearchReady)
 }
 
 func validateProjectAccess(ctx context.Context, userID, projectID uint) error {
@@ -215,6 +233,12 @@ func (c *elasticClient) ensureIndex(ctx context.Context) error {
 }
 
 func (c *elasticClient) upsertTask(ctx context.Context, evt TaskEvent) error {
+	start := time.Now()
+	result := "success"
+	defer func() {
+		searchIndexOperationDuration.WithLabelValues("upsert", result).Observe(time.Since(start).Seconds())
+	}()
+
 	doc := map[string]any{
 		"task_id":       evt.TaskID,
 		"project_id":    evt.ProjectID,
@@ -231,11 +255,13 @@ func (c *elasticClient) upsertTask(ctx context.Context, evt TaskEvent) error {
 	url := fmt.Sprintf("%s/%s/_doc/%s", c.baseURL, c.index, strconv.FormatUint(uint64(evt.TaskID), 10))
 	req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, bytes.NewReader(body))
 	if err != nil {
+		result = "error"
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := c.do(req)
 	if err != nil {
+		result = "error"
 		return err
 	}
 	defer resp.Body.Close()
@@ -244,17 +270,26 @@ func (c *elasticClient) upsertTask(ctx context.Context, evt TaskEvent) error {
 		return nil
 	}
 	respBody, _ := io.ReadAll(resp.Body)
+	result = "error"
 	return fmt.Errorf("index upsert failed: %s: %s", resp.Status, string(respBody))
 }
 
 func (c *elasticClient) deleteTask(ctx context.Context, evt TaskEvent) error {
+	start := time.Now()
+	result := "success"
+	defer func() {
+		searchIndexOperationDuration.WithLabelValues("delete", result).Observe(time.Since(start).Seconds())
+	}()
+
 	url := fmt.Sprintf("%s/%s/_doc/%s", c.baseURL, c.index, strconv.FormatUint(uint64(evt.TaskID), 10))
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
 	if err != nil {
+		result = "error"
 		return err
 	}
 	resp, err := c.do(req)
 	if err != nil {
+		result = "error"
 		return err
 	}
 	defer resp.Body.Close()
@@ -263,6 +298,7 @@ func (c *elasticClient) deleteTask(ctx context.Context, evt TaskEvent) error {
 		return nil
 	}
 	respBody, _ := io.ReadAll(resp.Body)
+	result = "error"
 	return fmt.Errorf("index delete failed: %s: %s", resp.Status, string(respBody))
 }
 
@@ -382,6 +418,8 @@ func consumeEvents(ctx context.Context, rabbitURL string) {
 	for {
 		if err := consumeOnce(ctx, rabbitURL); err != nil {
 			rabbitReady.Store(false)
+			searchRabbitConsumerReady.Set(0)
+			searchElasticsearchReady.Set(0)
 			logger.Error("search-service consumer stopped", zap.Error(err))
 		}
 		select {
@@ -394,8 +432,10 @@ func consumeEvents(ctx context.Context, rabbitURL string) {
 
 func consumeOnce(ctx context.Context, rabbitURL string) error {
 	if err := indexer.ensureIndex(ctx); err != nil {
+		searchElasticsearchReady.Set(0)
 		return err
 	}
+	searchElasticsearchReady.Set(1)
 
 	conn, err := amqp.Dial(rabbitURL)
 	if err != nil {
@@ -425,6 +465,8 @@ func consumeOnce(ctx context.Context, rabbitURL string) error {
 	}
 
 	rabbitReady.Store(true)
+	searchRabbitConsumerReady.Set(1)
+	defer searchRabbitConsumerReady.Set(0)
 	for {
 		select {
 		case <-ctx.Done():
@@ -509,15 +551,18 @@ func searchTasksHandler(w http.ResponseWriter, r *http.Request) {
 		projectID = &project
 	}
 
+	start := time.Now()
 	results, total, err := indexer.searchTasks(r.Context(), userID, query, projectID, limit)
 	if err != nil {
 		searchRequestsTotal.WithLabelValues("error").Inc()
+		searchQueryDuration.WithLabelValues("error").Observe(time.Since(start).Seconds())
 		logFromContext(r.Context()).Error("search request failed", zap.Error(err))
 		jsonResp(w, http.StatusBadGateway, map[string]string{"error": "search backend unavailable"})
 		return
 	}
 
 	searchRequestsTotal.WithLabelValues("ok").Inc()
+	searchQueryDuration.WithLabelValues("ok").Observe(time.Since(start).Seconds())
 	jsonResp(w, http.StatusOK, searchResponse{
 		Query:   query,
 		Total:   total,
@@ -550,9 +595,11 @@ func main() {
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if err := indexer.ping(r.Context()); err != nil {
+			searchElasticsearchReady.Set(0)
 			fmt.Fprintf(w, `{"status":"degraded","service":"search-service","rabbit_ready":%t,"elastic_ready":false,"error":%q}`, rabbitReady.Load(), err.Error())
 			return
 		}
+		searchElasticsearchReady.Set(1)
 		fmt.Fprintf(w, `{"status":"ok","service":"search-service","rabbit_ready":%t,"elastic_ready":true}`, rabbitReady.Load())
 	})
 	mux.Handle("/metrics", promhttp.Handler())

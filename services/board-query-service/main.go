@@ -75,10 +75,28 @@ var (
 		Name: "board_query_projection_events_total",
 		Help: "Total projection sync operations by source",
 	}, []string{"source", "result"})
+	projectionApplyDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "board_query_projection_apply_duration_seconds",
+		Help:    "Time spent applying board-query projection writes",
+		Buckets: prometheus.DefBuckets,
+	}, []string{"source", "result"})
+	backfillTasksTotal = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "board_query_backfill_tasks_total",
+		Help: "Number of source tasks loaded by the latest board-query backfill",
+	})
+	backfillDuration = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Name:    "board_query_backfill_duration_seconds",
+		Help:    "Time spent running board-query startup backfill",
+		Buckets: prometheus.DefBuckets,
+	})
+	rabbitConsumerReady = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "board_query_rabbitmq_consumer_ready",
+		Help: "Whether board-query-service has an active RabbitMQ consumer",
+	})
 )
 
 func init() {
-	prometheus.MustRegister(queryReadsTotal, querySyncTotal)
+	prometheus.MustRegister(queryReadsTotal, querySyncTotal, projectionApplyDuration, backfillTasksTotal, backfillDuration, rabbitConsumerReady)
 }
 
 func getEnv(key, fallback string) string {
@@ -148,12 +166,20 @@ func upsertTaskView(ctx context.Context, view TaskView) error {
 }
 
 func backfillTaskViews(ctx context.Context) {
+	start := time.Now()
+	result := "success"
+	defer func() {
+		backfillDuration.Observe(time.Since(start).Seconds())
+		querySyncTotal.WithLabelValues("backfill", result).Inc()
+	}()
+
 	var tasks []sourceTask
 	if err := db.WithContext(ctx).Find(&tasks).Error; err != nil {
 		logger.Error("board-query backfill failed", zap.Error(err))
-		querySyncTotal.WithLabelValues("backfill", "error").Inc()
+		result = "error"
 		return
 	}
+	backfillTasksTotal.Set(float64(len(tasks)))
 
 	for _, task := range tasks {
 		view := TaskView{
@@ -167,13 +193,12 @@ func backfillTaskViews(ctx context.Context) {
 			CreatedAt:   task.CreatedAt,
 			UpdatedAt:   task.UpdatedAt,
 		}
-		if err := upsertTaskView(ctx, view); err != nil {
+		if err := applyProjection(ctx, "backfill", view); err != nil {
 			logger.Error("board-query backfill upsert failed", zap.Error(err))
-			querySyncTotal.WithLabelValues("backfill", "error").Inc()
+			result = "error"
 			return
 		}
 	}
-	querySyncTotal.WithLabelValues("backfill", "success").Inc()
 }
 
 func consumeEvents(ctx context.Context, rabbitURL string) {
@@ -220,6 +245,8 @@ func consumeOnce(ctx context.Context, rabbitURL string) error {
 	}
 
 	rabbitReady.Store(true)
+	rabbitConsumerReady.Set(1)
+	defer rabbitConsumerReady.Set(0)
 	for {
 		select {
 		case <-ctx.Done():
@@ -250,7 +277,7 @@ func handleDelivery(ctx context.Context, msg amqp.Delivery) error {
 	defer span.End()
 
 	if evt.Type == "task.deleted" {
-		err := db.WithContext(ctx).Delete(&TaskView{}, "task_id = ?", evt.TaskID).Error
+		err := deleteProjection(ctx, "event", evt.TaskID)
 		recordSpanError(span, err)
 		return err
 	}
@@ -265,8 +292,30 @@ func handleDelivery(ctx context.Context, msg amqp.Delivery) error {
 		OccurredAt:  evt.OccurredAt,
 		UpdatedAt:   evt.OccurredAt,
 	}
-	err := upsertTaskView(ctx, view)
+	err := applyProjection(ctx, "event", view)
 	recordSpanError(span, err)
+	return err
+}
+
+func applyProjection(ctx context.Context, source string, view TaskView) error {
+	start := time.Now()
+	err := upsertTaskView(ctx, view)
+	result := "success"
+	if err != nil {
+		result = "error"
+	}
+	projectionApplyDuration.WithLabelValues(source, result).Observe(time.Since(start).Seconds())
+	return err
+}
+
+func deleteProjection(ctx context.Context, source string, taskID uint) error {
+	start := time.Now()
+	err := db.WithContext(ctx).Delete(&TaskView{}, "task_id = ?", taskID).Error
+	result := "success"
+	if err != nil {
+		result = "error"
+	}
+	projectionApplyDuration.WithLabelValues(source, result).Observe(time.Since(start).Seconds())
 	return err
 }
 

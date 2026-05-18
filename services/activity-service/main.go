@@ -55,10 +55,23 @@ var (
 		Name: "activity_events_stored_total",
 		Help: "Total activity events stored from RabbitMQ",
 	})
+	activityReadRequestsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "activity_read_requests_total",
+		Help: "Total activity read requests by result",
+	}, []string{"result"})
+	activityEventStoreDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "activity_event_store_duration_seconds",
+		Help:    "Time spent storing activity events consumed from RabbitMQ",
+		Buckets: prometheus.DefBuckets,
+	}, []string{"result"})
+	activityRabbitConsumerReady = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "activity_rabbitmq_consumer_ready",
+		Help: "Whether activity-service has an active RabbitMQ consumer",
+	})
 )
 
 func init() {
-	prometheus.MustRegister(activityEventsStoredTotal)
+	prometheus.MustRegister(activityEventsStoredTotal, activityReadRequestsTotal, activityEventStoreDuration, activityRabbitConsumerReady)
 }
 
 func initDB() {
@@ -135,6 +148,7 @@ func consumeEvents(ctx context.Context, rabbitURL string) {
 	for {
 		if err := consumeOnce(ctx, rabbitURL); err != nil {
 			rabbitReady.Store(false)
+			activityRabbitConsumerReady.Set(0)
 			logger.Error("activity consumer stopped", zap.Error(err))
 		}
 
@@ -175,6 +189,8 @@ func consumeOnce(ctx context.Context, rabbitURL string) error {
 	}
 
 	rabbitReady.Store(true)
+	activityRabbitConsumerReady.Set(1)
+	defer activityRabbitConsumerReady.Set(0)
 	for {
 		select {
 		case <-ctx.Done():
@@ -194,8 +210,15 @@ func consumeOnce(ctx context.Context, rabbitURL string) error {
 }
 
 func handleDelivery(ctx context.Context, msg amqp.Delivery) error {
+	start := time.Now()
+	result := "success"
+	defer func() {
+		activityEventStoreDuration.WithLabelValues(result).Observe(time.Since(start).Seconds())
+	}()
+
 	var evt TaskEvent
 	if err := json.Unmarshal(msg.Body, &evt); err != nil {
+		result = "invalid_payload"
 		logger.Warn("invalid activity payload", zap.Error(err))
 		return nil
 	}
@@ -215,8 +238,10 @@ func handleDelivery(ctx context.Context, msg amqp.Delivery) error {
 	}
 	if err := db.WithContext(ctx).Create(&activity).Error; err != nil {
 		if strings.Contains(err.Error(), "Duplicate entry") {
+			result = "duplicate"
 			return nil
 		}
+		result = "error"
 		recordSpanError(span, err)
 		return err
 	}
@@ -232,6 +257,7 @@ func activityHandler(w http.ResponseWriter, r *http.Request) {
 
 	userID, ok := getUserID(r)
 	if !ok {
+		activityReadRequestsTotal.WithLabelValues("unauthorized").Inc()
 		jsonResp(w, http.StatusUnauthorized, map[string]string{"error": "missing user context"})
 		return
 	}
@@ -240,12 +266,14 @@ func activityHandler(w http.ResponseWriter, r *http.Request) {
 	if raw := strings.TrimSpace(r.URL.Query().Get("project_id")); raw != "" {
 		id, err := strconv.ParseUint(raw, 10, 64)
 		if err != nil {
+			activityReadRequestsTotal.WithLabelValues("bad_request").Inc()
 			jsonResp(w, http.StatusBadRequest, map[string]string{"error": "invalid project_id"})
 			return
 		}
 		parsed := uint(id)
 		projectID = &parsed
 		if err := validateProjectAccess(r.Context(), userID, parsed); err != nil {
+			activityReadRequestsTotal.WithLabelValues("forbidden").Inc()
 			jsonResp(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}
@@ -265,9 +293,11 @@ func activityHandler(w http.ResponseWriter, r *http.Request) {
 
 	var activities []Activity
 	if err := query.Order("occurred_at desc").Limit(limit).Find(&activities).Error; err != nil {
+		activityReadRequestsTotal.WithLabelValues("error").Inc()
 		jsonResp(w, http.StatusInternalServerError, map[string]string{"error": "failed to load activity"})
 		return
 	}
+	activityReadRequestsTotal.WithLabelValues("ok").Inc()
 	jsonResp(w, http.StatusOK, activities)
 }
 
