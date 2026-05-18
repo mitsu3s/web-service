@@ -133,7 +133,7 @@ var (
 	httpRequestsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "board_service_http_requests_total",
 		Help: "Total board-service requests by endpoint and result",
-	}, []string{"method", "path", "status"})
+	}, []string{"method", "route", "status"})
 	dashboardLoadsTotal = prometheus.NewCounter(prometheus.CounterOpts{
 		Name: "board_service_dashboard_loads_total",
 		Help: "Total dashboard loads",
@@ -514,7 +514,8 @@ func withMetrics(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(rec, r)
-		httpRequestsTotal.WithLabelValues(r.Method, r.URL.Path, strconv.Itoa(rec.status)).Inc()
+		route := normalizedPath(r.URL.Path)
+		httpRequestsTotal.WithLabelValues(r.Method, route, strconv.Itoa(rec.status)).Inc()
 	})
 }
 
