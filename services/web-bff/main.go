@@ -30,12 +30,12 @@ var (
 	httpRequestsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "web_bff_http_requests_total",
 		Help: "Total number of HTTP requests handled by web-bff",
-	}, []string{"method", "path", "status"})
+	}, []string{"method", "route", "status"})
 	httpRequestDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Name:    "web_bff_http_request_duration_seconds",
 		Help:    "HTTP request latency for web-bff",
 		Buckets: prometheus.DefBuckets,
-	}, []string{"method", "path"})
+	}, []string{"method", "route"})
 )
 
 func init() {
@@ -210,8 +210,9 @@ func withMetrics(next http.Handler) http.Handler {
 		start := time.Now()
 		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(rec, r)
-		httpRequestsTotal.WithLabelValues(r.Method, r.URL.Path, strconv.Itoa(rec.status)).Inc()
-		httpRequestDuration.WithLabelValues(r.Method, r.URL.Path).Observe(time.Since(start).Seconds())
+		route := normalizedPath(r.URL.Path)
+		httpRequestsTotal.WithLabelValues(r.Method, route, strconv.Itoa(rec.status)).Inc()
+		httpRequestDuration.WithLabelValues(r.Method, route).Observe(time.Since(start).Seconds())
 	})
 }
 

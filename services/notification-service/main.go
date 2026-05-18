@@ -46,10 +46,22 @@ var (
 		Name: "sse_events_delivered_total",
 		Help: "Total SSE events delivered to clients",
 	})
+	sseEventsDropped = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "sse_events_dropped_total",
+		Help: "Total SSE events dropped because a subscriber channel was full",
+	})
+	notificationEventsReceived = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "notification_events_received_total",
+		Help: "Total task events consumed by notification-service from RabbitMQ",
+	})
+	notificationRabbitConsumerReady = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "notification_rabbitmq_consumer_ready",
+		Help: "Whether notification-service has an active RabbitMQ consumer",
+	})
 )
 
 func init() {
-	prometheus.MustRegister(sseConnectionsActive, sseEventsDelivered)
+	prometheus.MustRegister(sseConnectionsActive, sseEventsDelivered, sseEventsDropped, notificationEventsReceived, notificationRabbitConsumerReady)
 }
 
 func (h *subscriberHub) subscribe(userID uint) chan TaskEvent {
@@ -88,6 +100,7 @@ func (h *subscriberHub) broadcast(evt TaskEvent) {
 		select {
 		case ch <- evt:
 		default:
+			sseEventsDropped.Inc()
 		}
 	}
 }
@@ -108,6 +121,7 @@ func consumeEvents(ctx context.Context, rabbitURL string) {
 	for {
 		if err := consumeOnce(ctx, rabbitURL); err != nil {
 			rabbitReady.Store(false)
+			notificationRabbitConsumerReady.Set(0)
 			logger.Error("rabbitmq consumer stopped", zap.Error(err))
 		}
 
@@ -150,6 +164,8 @@ func consumeOnce(ctx context.Context, rabbitURL string) error {
 	}
 
 	rabbitReady.Store(true)
+	notificationRabbitConsumerReady.Set(1)
+	defer notificationRabbitConsumerReady.Set(0)
 	for {
 		select {
 		case <-ctx.Done():
@@ -169,6 +185,7 @@ func handleDelivery(ctx context.Context, msg amqp.Delivery) {
 		logger.Warn("failed to decode task event", zap.Error(err))
 		return
 	}
+	notificationEventsReceived.Inc()
 	_, span := startAMQPConsumerSpan(ctx, msg, evt.Type, evt.EventID, evt.TaskID, evt.ProjectID)
 	defer span.End()
 	hub.broadcast(evt)

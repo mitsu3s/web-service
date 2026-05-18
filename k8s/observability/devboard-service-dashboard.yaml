@@ -36,33 +36,13 @@ data:
       "links": [],
       "panels": [
         {
+          "id": 1,
+          "type": "stat",
+          "title": "Down Scrape Targets",
+          "description": "Prometheus scrape health for DevBoard application services. If this is non-zero, app metrics are not trustworthy.",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
-          },
-          "description": "Prometheus scrape target health for DevBoard application services. If this is not healthy, the rest of the service dashboard cannot be trusted.",
-          "fieldConfig": {
-            "defaults": {
-              "color": {
-                "mode": "thresholds"
-              },
-              "mappings": [],
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green",
-                    "value": null
-                  },
-                  {
-                    "color": "red",
-                    "value": 1
-                  }
-                ]
-              },
-              "unit": "short"
-            },
-            "overrides": []
           },
           "gridPos": {
             "h": 4,
@@ -70,10 +50,28 @@ data:
             "x": 0,
             "y": 0
           },
-          "id": 1,
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum(1 - up{namespace=\"devboard\", job=~\"web-bff|.*-service\"})",
+              "range": true,
+              "refId": "A",
+              "legendFormat": "down targets"
+            }
+          ],
           "options": {
             "colorMode": "background",
-            "graphMode": "none",
+            "graphMode": "area",
             "justifyMode": "auto",
             "orientation": "auto",
             "reduceOptions": {
@@ -83,11 +81,31 @@ data:
               "fields": "",
               "values": false
             },
-            "showPercentChange": false,
             "textMode": "auto",
             "wideLayout": true
+          }
+        },
+        {
+          "id": 2,
+          "type": "stat",
+          "title": "Unavailable DevBoard Replicas",
+          "description": "Kubernetes deployment availability for DevBoard workloads.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
           },
-          "pluginVersion": "12.4.0",
+          "gridPos": {
+            "h": 4,
+            "w": 6,
+            "x": 6,
+            "y": 0
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short"
+            },
+            "overrides": []
+          },
           "targets": [
             {
               "datasource": {
@@ -95,53 +113,401 @@ data:
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum(1 - up{namespace=\"devboard\", job=~\"web-bff|.*-service\"})",
-              "legendFormat": "down targets",
+              "expr": "sum(kube_deployment_status_replicas_unavailable{namespace=\"devboard\"})",
               "range": true,
-              "refId": "A"
+              "refId": "A",
+              "legendFormat": "unavailable replicas"
             }
           ],
-          "title": "Down Scrape Targets",
-          "type": "stat"
+          "options": {
+            "colorMode": "background",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "auto",
+            "wideLayout": true
+          }
         },
         {
+          "id": 3,
+          "type": "stat",
+          "title": "Pod Restarts In Range",
+          "description": "Application container restarts over the selected time range.",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "description": "Inbound HTTP request rate reported by Istio destination sidecars. This is the mesh-level RED Rate signal.",
+          "gridPos": {
+            "h": 4,
+            "w": 6,
+            "x": 12,
+            "y": 0
+          },
           "fieldConfig": {
             "defaults": {
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum(increase(kube_pod_container_status_restarts_total{namespace=\"devboard\", container!~\"POD|istio-proxy\"}[$__range]))",
+              "range": true,
+              "refId": "A",
+              "legendFormat": "container restarts"
+            }
+          ],
+          "options": {
+            "colorMode": "background",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "auto",
+            "wideLayout": true
+          }
+        },
+        {
+          "id": 4,
+          "type": "timeseries",
+          "title": "Async Readiness",
+          "description": "Readiness of asynchronous publishers/consumers and search backend connectivity.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 6,
+            "x": 18,
+            "y": 0
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
               "custom": {
                 "drawStyle": "line",
                 "fillOpacity": 12,
                 "lineWidth": 2,
                 "showPoints": "never"
-              },
-              "unit": "reqps"
+              }
             },
             "overrides": []
           },
-          "gridPos": {
-            "h": 8,
-            "w": 9,
-            "x": 6,
-            "y": 0
-          },
-          "id": 2,
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "max(task_command_rabbitmq_publisher_ready{namespace=\"devboard\"})",
+              "range": true,
+              "refId": "A",
+              "legendFormat": "task-command publisher"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "max(board_query_rabbitmq_consumer_ready{namespace=\"devboard\"})",
+              "range": true,
+              "refId": "B",
+              "legendFormat": "board-query consumer"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "max(activity_rabbitmq_consumer_ready{namespace=\"devboard\"})",
+              "range": true,
+              "refId": "C",
+              "legendFormat": "activity consumer"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "max(search_service_rabbitmq_consumer_ready{namespace=\"devboard\"})",
+              "range": true,
+              "refId": "D",
+              "legendFormat": "search consumer"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "max(notification_rabbitmq_consumer_ready{namespace=\"devboard\"})",
+              "range": true,
+              "refId": "E",
+              "legendFormat": "notification consumer"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "max(search_service_elasticsearch_ready{namespace=\"devboard\"})",
+              "range": true,
+              "refId": "F",
+              "legendFormat": "search elasticsearch"
+            }
+          ],
           "options": {
             "legend": {
-              "calcs": [
-                "lastNotNull"
-              ],
               "displayMode": "table",
               "placement": "bottom",
-              "showLegend": true
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull"
+              ]
             },
             "tooltip": {
               "mode": "multi",
               "sort": "desc"
             }
+          }
+        },
+        {
+          "id": 5,
+          "type": "timeseries",
+          "title": "web-bff API Request Rate",
+          "description": "User-facing API request rate at the BFF, grouped by bounded route labels.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 8,
+            "x": 0,
+            "y": 4
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ops",
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 12,
+                "lineWidth": 2,
+                "showPoints": "never"
+              }
+            },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum by (route, status) (rate(web_bff_http_requests_total{namespace=\"devboard\", route=~\"/api.*|/health\"}[$__rate_interval]))",
+              "range": true,
+              "refId": "A",
+              "legendFormat": "{{status}} {{route}}"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum(rate(board_service_dashboard_loads_total{namespace=\"devboard\"}[$__rate_interval]))",
+              "range": true,
+              "refId": "B",
+              "legendFormat": "dashboard loads"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum(rate(board_service_project_lists_total{namespace=\"devboard\"}[$__rate_interval]))",
+              "range": true,
+              "refId": "C",
+              "legendFormat": "project list loads"
+            }
+          ],
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 6,
+          "type": "timeseries",
+          "title": "web-bff API 5xx Rate",
+          "description": "User-facing API server-side failures. 4xx is intentionally excluded because many are expected validation/auth outcomes.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 8,
+            "x": 8,
+            "y": 4
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ops",
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 12,
+                "lineWidth": 2,
+                "showPoints": "never"
+              }
+            },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum by (route) (rate(web_bff_http_requests_total{namespace=\"devboard\", route=~\"/api.*\", status=~\"5..\"}[$__rate_interval]))",
+              "range": true,
+              "refId": "A",
+              "legendFormat": "{{route}} 5xx"
+            }
+          ],
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 7,
+          "type": "timeseries",
+          "title": "web-bff API p95 Latency",
+          "description": "User-facing latency by bounded API route.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 8,
+            "x": 16,
+            "y": 4
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 12,
+                "lineWidth": 2,
+                "showPoints": "never"
+              }
+            },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "histogram_quantile(0.95, sum by (route, le) (rate(web_bff_http_request_duration_seconds_bucket{namespace=\"devboard\", route=~\"/api.*|/health\"}[$__rate_interval])))",
+              "range": true,
+              "refId": "A",
+              "legendFormat": "{{route}} p95"
+            }
+          ],
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 8,
+          "type": "timeseries",
+          "title": "Mesh Inbound Request Rate",
+          "description": "Istio-observed inbound request rate per service workload.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 8,
+            "x": 0,
+            "y": 11
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ops",
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 12,
+                "lineWidth": 2,
+                "showPoints": "never"
+              }
+            },
+            "overrides": []
           },
           "targets": [
             {
@@ -151,55 +517,52 @@ data:
               },
               "editorMode": "code",
               "expr": "sum by (destination_workload) (rate(istio_requests_total{reporter=\"destination\", destination_workload_namespace=\"devboard\", destination_workload!=\"unknown\"}[$__rate_interval]))",
-              "legendFormat": "{{destination_workload}}",
               "range": true,
-              "refId": "A"
+              "refId": "A",
+              "legendFormat": "{{destination_workload}}"
             }
           ],
-          "title": "Mesh Inbound Request Rate",
-          "type": "timeseries"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "description": "Inbound 5xx rate reported by Istio destination sidecars. This answers which service is returning server-side failures.",
-          "fieldConfig": {
-            "defaults": {
-              "color": {
-                "mode": "palette-classic"
-              },
-              "custom": {
-                "drawStyle": "line",
-                "fillOpacity": 20,
-                "lineWidth": 2,
-                "showPoints": "never"
-              },
-              "unit": "reqps"
-            },
-            "overrides": []
-          },
-          "gridPos": {
-            "h": 8,
-            "w": 9,
-            "x": 15,
-            "y": 0
-          },
-          "id": 3,
           "options": {
             "legend": {
-              "calcs": [
-                "lastNotNull"
-              ],
               "displayMode": "table",
               "placement": "bottom",
-              "showLegend": true
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull"
+              ]
             },
             "tooltip": {
               "mode": "multi",
               "sort": "desc"
             }
+          }
+        },
+        {
+          "id": 9,
+          "type": "timeseries",
+          "title": "Mesh Inbound 5xx Rate",
+          "description": "Istio-observed server failures per service workload.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 8,
+            "x": 8,
+            "y": 11
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ops",
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 12,
+                "lineWidth": 2,
+                "showPoints": "never"
+              }
+            },
+            "overrides": []
           },
           "targets": [
             {
@@ -209,53 +572,52 @@ data:
               },
               "editorMode": "code",
               "expr": "sum by (destination_workload, response_code) (rate(istio_requests_total{reporter=\"destination\", destination_workload_namespace=\"devboard\", destination_workload!=\"unknown\", response_code=~\"5..\"}[$__rate_interval]))",
-              "legendFormat": "{{destination_workload}} {{response_code}}",
               "range": true,
-              "refId": "A"
+              "refId": "A",
+              "legendFormat": "{{destination_workload}} {{response_code}}"
             }
           ],
-          "title": "Mesh Inbound 5xx Rate",
-          "type": "timeseries"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "description": "p95 latency reported by Istio in milliseconds. This is mesh-level RED Duration.",
-          "fieldConfig": {
-            "defaults": {
-              "custom": {
-                "drawStyle": "line",
-                "fillOpacity": 10,
-                "lineWidth": 2,
-                "showPoints": "never"
-              },
-              "unit": "ms"
-            },
-            "overrides": []
-          },
-          "gridPos": {
-            "h": 8,
-            "w": 12,
-            "x": 0,
-            "y": 8
-          },
-          "id": 4,
           "options": {
             "legend": {
-              "calcs": [
-                "lastNotNull",
-                "max"
-              ],
               "displayMode": "table",
               "placement": "bottom",
-              "showLegend": true
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull"
+              ]
             },
             "tooltip": {
               "mode": "multi",
               "sort": "desc"
             }
+          }
+        },
+        {
+          "id": 10,
+          "type": "timeseries",
+          "title": "Mesh Inbound p95 Latency",
+          "description": "Istio-observed service latency. This complements app-level route latency.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 8,
+            "x": 16,
+            "y": 11
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ms",
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 12,
+                "lineWidth": 2,
+                "showPoints": "never"
+              }
+            },
+            "overrides": []
           },
           "targets": [
             {
@@ -265,52 +627,52 @@ data:
               },
               "editorMode": "code",
               "expr": "histogram_quantile(0.95, sum by (destination_workload, le) (rate(istio_request_duration_milliseconds_bucket{reporter=\"destination\", destination_workload_namespace=\"devboard\", destination_workload!=\"unknown\"}[$__rate_interval])))",
-              "legendFormat": "{{destination_workload}} p95",
               "range": true,
-              "refId": "A"
+              "refId": "A",
+              "legendFormat": "{{destination_workload}} p95"
             }
           ],
-          "title": "Mesh Inbound p95 Latency",
-          "type": "timeseries"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "description": "Requests grouped by Istio connection security policy. In this environment, service-to-service traffic should primarily be mutual_tls.",
-          "fieldConfig": {
-            "defaults": {
-              "custom": {
-                "drawStyle": "line",
-                "fillOpacity": 18,
-                "lineWidth": 2,
-                "showPoints": "never"
-              },
-              "unit": "reqps"
-            },
-            "overrides": []
-          },
-          "gridPos": {
-            "h": 8,
-            "w": 12,
-            "x": 12,
-            "y": 8
-          },
-          "id": 5,
           "options": {
             "legend": {
-              "calcs": [
-                "lastNotNull"
-              ],
               "displayMode": "table",
               "placement": "bottom",
-              "showLegend": true
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull"
+              ]
             },
             "tooltip": {
               "mode": "multi",
               "sort": "desc"
             }
+          }
+        },
+        {
+          "id": 11,
+          "type": "timeseries",
+          "title": "Mesh Security Policy",
+          "description": "Shows whether DevBoard service-to-service traffic is observed as mutual_tls or plaintext.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 8,
+            "x": 0,
+            "y": 18
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ops",
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 12,
+                "lineWidth": 2,
+                "showPoints": "never"
+              }
+            },
+            "overrides": []
           },
           "targets": [
             {
@@ -320,163 +682,107 @@ data:
               },
               "editorMode": "code",
               "expr": "sum by (connection_security_policy) (rate(istio_requests_total{reporter=\"destination\", destination_workload_namespace=\"devboard\", destination_workload!=\"unknown\"}[$__rate_interval]))",
-              "legendFormat": "{{connection_security_policy}}",
               "range": true,
-              "refId": "A"
+              "refId": "A",
+              "legendFormat": "{{connection_security_policy}}"
             }
           ],
-          "title": "Mesh Security Policy",
-          "type": "timeseries"
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
         },
         {
+          "id": 12,
+          "type": "timeseries",
+          "title": "board-service Aggregation Rate",
+          "description": "Board aggregation API calls after web-bff routes requests to board-service.",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "description": "Application-level BFF request rate. This uses DevBoard's own Go metrics, not Istio metrics.",
+          "gridPos": {
+            "h": 6,
+            "w": 8,
+            "x": 8,
+            "y": 18
+          },
           "fieldConfig": {
             "defaults": {
+              "unit": "ops",
               "custom": {
                 "drawStyle": "line",
                 "fillOpacity": 12,
                 "lineWidth": 2,
                 "showPoints": "never"
-              },
-              "unit": "reqps"
+              }
             },
             "overrides": []
           },
-          "gridPos": {
-            "h": 8,
-            "w": 12,
-            "x": 0,
-            "y": 16
-          },
-          "id": 6,
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum by (route, status) (rate(board_service_http_requests_total{namespace=\"devboard\", route!~\"/health|/metrics\"}[$__rate_interval]))",
+              "range": true,
+              "refId": "A",
+              "legendFormat": "{{status}} {{route}}"
+            }
+          ],
           "options": {
             "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true,
               "calcs": [
                 "lastNotNull"
-              ],
-              "displayMode": "table",
-              "placement": "bottom",
-              "showLegend": true
+              ]
             },
             "tooltip": {
               "mode": "multi",
               "sort": "desc"
             }
-          },
-          "targets": [
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "prometheus"
-              },
-              "editorMode": "code",
-              "expr": "sum by (path, status) (rate(web_bff_http_requests_total{namespace=\"devboard\", path=~\"/api.*|/health\"}[$__rate_interval]))",
-              "legendFormat": "{{status}} {{path}}",
-              "range": true,
-              "refId": "A"
-            }
-          ],
-          "title": "web-bff API Request Rate",
-          "type": "timeseries"
+          }
         },
         {
+          "id": 13,
+          "type": "timeseries",
+          "title": "Access Check Outcomes",
+          "description": "Authorization decisions. Denied and error outcomes explain many 403/502 flows.",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
-          },
-          "description": "Application-level p95 latency for BFF API paths.",
-          "fieldConfig": {
-            "defaults": {
-              "custom": {
-                "drawStyle": "line",
-                "fillOpacity": 10,
-                "lineWidth": 2,
-                "showPoints": "never"
-              },
-              "unit": "s"
-            },
-            "overrides": []
           },
           "gridPos": {
-            "h": 8,
-            "w": 12,
-            "x": 12,
-            "y": 16
+            "h": 6,
+            "w": 8,
+            "x": 16,
+            "y": 18
           },
-          "id": 7,
-          "options": {
-            "legend": {
-              "calcs": [
-                "lastNotNull",
-                "max"
-              ],
-              "displayMode": "table",
-              "placement": "bottom",
-              "showLegend": true
-            },
-            "tooltip": {
-              "mode": "multi",
-              "sort": "desc"
-            }
-          },
-          "targets": [
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "prometheus"
-              },
-              "editorMode": "code",
-              "expr": "histogram_quantile(0.95, sum by (path, le) (rate(web_bff_http_request_duration_seconds_bucket{namespace=\"devboard\", path=~\"/api.*|/health\"}[$__rate_interval])))",
-              "legendFormat": "{{path}} p95",
-              "range": true,
-              "refId": "A"
-            }
-          ],
-          "title": "web-bff API p95 Latency",
-          "type": "timeseries"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "description": "Application-level board-service request rate. This separates dashboard, task list, and search gateway paths.",
           "fieldConfig": {
             "defaults": {
+              "unit": "ops",
               "custom": {
                 "drawStyle": "line",
                 "fillOpacity": 12,
                 "lineWidth": 2,
                 "showPoints": "never"
-              },
-              "unit": "reqps"
+              }
             },
             "overrides": []
-          },
-          "gridPos": {
-            "h": 8,
-            "w": 12,
-            "x": 0,
-            "y": 24
-          },
-          "id": 8,
-          "options": {
-            "legend": {
-              "calcs": [
-                "lastNotNull"
-              ],
-              "displayMode": "table",
-              "placement": "bottom",
-              "showLegend": true
-            },
-            "tooltip": {
-              "mode": "multi",
-              "sort": "desc"
-            }
           },
           "targets": [
             {
@@ -485,108 +791,372 @@ data:
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "sum by (path, status) (rate(board_service_http_requests_total{namespace=\"devboard\", path!=\"/health\", path!=\"/metrics\"}[$__rate_interval]))",
-              "legendFormat": "{{status}} {{path}}",
+              "expr": "sum by (target, result) (rate(access_service_checks_total{namespace=\"devboard\"}[$__rate_interval]))",
               "range": true,
-              "refId": "A"
+              "refId": "A",
+              "legendFormat": "{{target}} {{result}}"
             }
           ],
-          "title": "board-service Request Rate",
-          "type": "timeseries"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "description": "Application-level search API outcomes. result=error or forbidden is the first place to check when search looks broken.",
-          "fieldConfig": {
-            "defaults": {
-              "custom": {
-                "drawStyle": "line",
-                "fillOpacity": 18,
-                "lineWidth": 2,
-                "showPoints": "never"
-              },
-              "unit": "reqps"
-            },
-            "overrides": []
-          },
-          "gridPos": {
-            "h": 8,
-            "w": 12,
-            "x": 12,
-            "y": 24
-          },
-          "id": 9,
           "options": {
             "legend": {
-              "calcs": [
-                "lastNotNull"
-              ],
               "displayMode": "table",
               "placement": "bottom",
-              "showLegend": true
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull"
+              ]
             },
             "tooltip": {
               "mode": "multi",
               "sort": "desc"
             }
-          },
-          "targets": [
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "prometheus"
-              },
-              "editorMode": "code",
-              "expr": "sum by (result) (rate(search_service_requests_total{namespace=\"devboard\"}[$__rate_interval]))",
-              "legendFormat": "{{result}}",
-              "range": true,
-              "refId": "A"
-            }
-          ],
-          "title": "search-service Request Outcomes",
-          "type": "timeseries"
+          }
         },
         {
+          "id": 14,
+          "type": "timeseries",
+          "title": "Identity Activity",
+          "description": "Identity-service registration and login outcomes.",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "description": "Task command write operations. This is a business/application signal rather than an infrastructure signal.",
-          "fieldConfig": {
-            "defaults": {
-              "custom": {
-                "drawStyle": "line",
-                "fillOpacity": 12,
-                "lineWidth": 2,
-                "showPoints": "never"
-              },
-              "unit": "ops"
-            },
-            "overrides": []
-          },
           "gridPos": {
-            "h": 8,
+            "h": 6,
             "w": 8,
             "x": 0,
-            "y": 32
+            "y": 24
           },
-          "id": 10,
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ops",
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 12,
+                "lineWidth": 2,
+                "showPoints": "never"
+              }
+            },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum(rate(identity_registrations_total{namespace=\"devboard\"}[$__rate_interval]))",
+              "range": true,
+              "refId": "A",
+              "legendFormat": "registrations"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum by (result) (rate(identity_logins_total{namespace=\"devboard\"}[$__rate_interval]))",
+              "range": true,
+              "refId": "B",
+              "legendFormat": "login {{result}}"
+            }
+          ],
           "options": {
             "legend": {
-              "calcs": [
-                "lastNotNull"
-              ],
               "displayMode": "table",
               "placement": "bottom",
-              "showLegend": true
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull"
+              ]
             },
             "tooltip": {
               "mode": "multi",
               "sort": "desc"
             }
+          }
+        },
+        {
+          "id": 15,
+          "type": "timeseries",
+          "title": "Project Service",
+          "description": "Project creation and project lookup/read activity.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 8,
+            "x": 8,
+            "y": 24
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ops",
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 12,
+                "lineWidth": 2,
+                "showPoints": "never"
+              }
+            },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum(rate(projects_created_total{namespace=\"devboard\"}[$__rate_interval]))",
+              "range": true,
+              "refId": "A",
+              "legendFormat": "projects created"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum by (endpoint) (rate(project_service_lookups_total{namespace=\"devboard\"}[$__rate_interval]))",
+              "range": true,
+              "refId": "B",
+              "legendFormat": "lookup {{endpoint}}"
+            }
+          ],
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 16,
+          "type": "timeseries",
+          "title": "Membership Service",
+          "description": "Membership reads/writes and project access checks.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 8,
+            "x": 16,
+            "y": 24
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ops",
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 12,
+                "lineWidth": 2,
+                "showPoints": "never"
+              }
+            },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum(rate(membership_service_list_requests_total{namespace=\"devboard\"}[$__rate_interval]))",
+              "range": true,
+              "refId": "A",
+              "legendFormat": "list memberships"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum(rate(membership_service_internal_writes_total{namespace=\"devboard\"}[$__rate_interval]))",
+              "range": true,
+              "refId": "B",
+              "legendFormat": "internal writes"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum by (result) (rate(membership_service_project_access_checks_total{namespace=\"devboard\"}[$__rate_interval]))",
+              "range": true,
+              "refId": "C",
+              "legendFormat": "access {{result}}"
+            }
+          ],
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 17,
+          "type": "timeseries",
+          "title": "Workflow Validation Outcomes",
+          "description": "Workflow/profile lookups and transition validation outcomes.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 8,
+            "x": 0,
+            "y": 30
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ops",
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 12,
+                "lineWidth": 2,
+                "showPoints": "never"
+              }
+            },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum by (endpoint, result) (rate(workflow_service_requests_total{namespace=\"devboard\"}[$__rate_interval]))",
+              "range": true,
+              "refId": "A",
+              "legendFormat": "{{endpoint}} {{result}}"
+            }
+          ],
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 18,
+          "type": "timeseries",
+          "title": "Task Orchestrator Outcomes",
+          "description": "Command validation/orchestration outcomes before writes reach task-command-service.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 8,
+            "x": 8,
+            "y": 30
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ops",
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 12,
+                "lineWidth": 2,
+                "showPoints": "never"
+              }
+            },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum by (action, result) (rate(task_orchestrator_commands_total{namespace=\"devboard\"}[$__rate_interval]))",
+              "range": true,
+              "refId": "A",
+              "legendFormat": "{{action}} {{result}}"
+            }
+          ],
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 19,
+          "type": "timeseries",
+          "title": "Task Command Operations",
+          "description": "Accepted write operations in task-command-service.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 8,
+            "x": 16,
+            "y": 30
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ops",
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 12,
+                "lineWidth": 2,
+                "showPoints": "never"
+              }
+            },
+            "overrides": []
           },
           "targets": [
             {
@@ -596,52 +1166,52 @@ data:
               },
               "editorMode": "code",
               "expr": "sum by (action) (rate(task_command_operations_total{namespace=\"devboard\"}[$__rate_interval]))",
-              "legendFormat": "{{action}}",
               "range": true,
-              "refId": "A"
+              "refId": "A",
+              "legendFormat": "{{action}}"
             }
           ],
-          "title": "Task Commands",
-          "type": "timeseries"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "description": "Outbox publish success/failure rate. If failures increase, RabbitMQ or publishing code should be checked.",
-          "fieldConfig": {
-            "defaults": {
-              "custom": {
-                "drawStyle": "line",
-                "fillOpacity": 12,
-                "lineWidth": 2,
-                "showPoints": "never"
-              },
-              "unit": "ops"
-            },
-            "overrides": []
-          },
-          "gridPos": {
-            "h": 8,
-            "w": 8,
-            "x": 8,
-            "y": 32
-          },
-          "id": 11,
           "options": {
             "legend": {
-              "calcs": [
-                "lastNotNull"
-              ],
               "displayMode": "table",
               "placement": "bottom",
-              "showLegend": true
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull"
+              ]
             },
             "tooltip": {
               "mode": "multi",
               "sort": "desc"
             }
+          }
+        },
+        {
+          "id": 20,
+          "type": "timeseries",
+          "title": "Outbox Publish",
+          "description": "Outbox publish flow into RabbitMQ. Failures here break downstream projections/search.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 8,
+            "x": 0,
+            "y": 37
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ops",
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 12,
+                "lineWidth": 2,
+                "showPoints": "never"
+              }
+            },
+            "overrides": []
           },
           "targets": [
             {
@@ -651,9 +1221,9 @@ data:
               },
               "editorMode": "code",
               "expr": "sum(rate(task_command_outbox_published_total{namespace=\"devboard\"}[$__rate_interval]))",
-              "legendFormat": "published",
               "range": true,
-              "refId": "A"
+              "refId": "A",
+              "legendFormat": "published"
             },
             {
               "datasource": {
@@ -662,61 +1232,65 @@ data:
               },
               "editorMode": "code",
               "expr": "sum(rate(task_command_outbox_publish_failures_total{namespace=\"devboard\"}[$__rate_interval]))",
-              "legendFormat": "publish failures",
               "range": true,
-              "refId": "B"
+              "refId": "B",
+              "legendFormat": "publish failures"
             }
           ],
-          "title": "Outbox Publish",
-          "type": "timeseries"
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
         },
         {
+          "id": 21,
+          "type": "stat",
+          "title": "Outbox Pending Events",
+          "description": "Current unpublished task-command outbox backlog.",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "description": "Container restarts during the selected dashboard time range. This comes from kube-state-metrics.",
+          "gridPos": {
+            "h": 7,
+            "w": 4,
+            "x": 8,
+            "y": 37
+          },
           "fieldConfig": {
             "defaults": {
-              "color": {
-                "mode": "thresholds"
-              },
-              "mappings": [],
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green",
-                    "value": null
-                  },
-                  {
-                    "color": "orange",
-                    "value": 1
-                  },
-                  {
-                    "color": "red",
-                    "value": 3
-                  }
-                ]
-              },
               "unit": "short"
             },
             "overrides": []
           },
-          "gridPos": {
-            "h": 8,
-            "w": 8,
-            "x": 16,
-            "y": 32
-          },
-          "id": 12,
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "max(task_command_outbox_pending_events{namespace=\"devboard\"})",
+              "range": true,
+              "refId": "A",
+              "legendFormat": "pending"
+            }
+          ],
           "options": {
-            "displayMode": "gradient",
-            "maxVizHeight": 300,
-            "minVizHeight": 16,
-            "minVizWidth": 8,
-            "namePlacement": "auto",
-            "orientation": "horizontal",
+            "colorMode": "background",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
             "reduceOptions": {
               "calcs": [
                 "lastNotNull"
@@ -724,152 +1298,670 @@ data:
               "fields": "",
               "values": false
             },
-            "showUnfilled": true,
-            "valueMode": "color"
-          },
-          "pluginVersion": "12.4.0",
-          "targets": [
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "prometheus"
-              },
-              "editorMode": "code",
-              "expr": "sum by (pod, container) (increase(kube_pod_container_status_restarts_total{namespace=\"devboard\", container!~\"POD|istio-proxy\"}[$__range]))",
-              "legendFormat": "{{pod}} / {{container}}",
-              "range": true,
-              "refId": "A"
-            }
-          ],
-          "title": "Pod Restarts In Range",
-          "type": "bargauge"
+            "textMode": "auto",
+            "wideLayout": true
+          }
         },
         {
+          "id": 22,
+          "type": "stat",
+          "title": "RabbitMQ Publisher Ready",
+          "description": "1 means task-command-service has an active RabbitMQ publisher connection.",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "description": "Trace pipeline health: services send spans to the OTel Collector, and the collector exports them to Tempo.",
-          "fieldConfig": {
-            "defaults": {
-              "custom": {
-                "drawStyle": "line",
-                "fillOpacity": 12,
-                "lineWidth": 2,
-                "showPoints": "never"
-              },
-              "unit": "ops"
-            },
-            "overrides": []
-          },
           "gridPos": {
             "h": 7,
-            "w": 12,
-            "x": 0,
-            "y": 40
-          },
-          "id": 13,
-          "options": {
-            "legend": {
-              "calcs": [
-                "lastNotNull"
-              ],
-              "displayMode": "table",
-              "placement": "bottom",
-              "showLegend": true
-            },
-            "tooltip": {
-              "mode": "multi",
-              "sort": "desc"
-            }
-          },
-          "targets": [
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "prometheus"
-              },
-              "editorMode": "code",
-              "expr": "sum(rate(otelcol_receiver_accepted_spans_total{receiver=\"otlp\"}[$__rate_interval])) or sum(rate(otelcol_receiver_accepted_spans{receiver=\"otlp\"}[$__rate_interval]))",
-              "legendFormat": "collector accepted spans",
-              "range": true,
-              "refId": "A"
-            },
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "prometheus"
-              },
-              "editorMode": "code",
-              "expr": "sum(rate(otelcol_exporter_sent_spans_total{exporter=\"otlp/tempo\"}[$__rate_interval])) or sum(rate(otelcol_exporter_sent_spans{exporter=\"otlp/tempo\"}[$__rate_interval]))",
-              "legendFormat": "collector sent spans to Tempo",
-              "range": true,
-              "refId": "B"
-            },
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "prometheus"
-              },
-              "editorMode": "code",
-              "expr": "sum(rate(otelcol_receiver_failed_spans_total{receiver=\"otlp\"}[$__rate_interval])) or sum(rate(otelcol_receiver_failed_spans{receiver=\"otlp\"}[$__rate_interval]))",
-              "legendFormat": "collector failed spans",
-              "range": true,
-              "refId": "C"
-            },
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "prometheus"
-              },
-              "editorMode": "code",
-              "expr": "sum(rate(otelcol_receiver_refused_spans_total{receiver=\"otlp\"}[$__rate_interval])) or sum(rate(otelcol_receiver_refused_spans{receiver=\"otlp\"}[$__rate_interval]))",
-              "legendFormat": "collector refused spans",
-              "range": true,
-              "refId": "D"
-            }
-          ],
-          "title": "Trace Pipeline",
-          "type": "timeseries"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "description": "Search indexing work consumed from RabbitMQ and written to Elasticsearch.",
-          "fieldConfig": {
-            "defaults": {
-              "custom": {
-                "drawStyle": "line",
-                "fillOpacity": 12,
-                "lineWidth": 2,
-                "showPoints": "never"
-              },
-              "unit": "ops"
-            },
-            "overrides": []
-          },
-          "gridPos": {
-            "h": 7,
-            "w": 12,
+            "w": 4,
             "x": 12,
-            "y": 40
+            "y": 37
           },
-          "id": 14,
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "max(task_command_rabbitmq_publisher_ready{namespace=\"devboard\"})",
+              "range": true,
+              "refId": "A",
+              "legendFormat": "publisher ready"
+            }
+          ],
           "options": {
-            "legend": {
+            "colorMode": "background",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
               "calcs": [
                 "lastNotNull"
               ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "auto",
+            "wideLayout": true
+          }
+        },
+        {
+          "id": 23,
+          "type": "timeseries",
+          "title": "board-query Reads",
+          "description": "Read model queries served by board-query-service.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 8,
+            "x": 16,
+            "y": 37
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ops",
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 12,
+                "lineWidth": 2,
+                "showPoints": "never"
+              }
+            },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum by (endpoint) (rate(board_query_reads_total{namespace=\"devboard\"}[$__rate_interval]))",
+              "range": true,
+              "refId": "A",
+              "legendFormat": "{{endpoint}}"
+            }
+          ],
+          "options": {
+            "legend": {
               "displayMode": "table",
               "placement": "bottom",
-              "showLegend": true
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull"
+              ]
             },
             "tooltip": {
               "mode": "multi",
               "sort": "desc"
             }
+          }
+        },
+        {
+          "id": 24,
+          "type": "timeseries",
+          "title": "board-query Projection Events",
+          "description": "Projection sync outcomes from startup backfill and RabbitMQ events.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 8,
+            "x": 0,
+            "y": 44
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ops",
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 12,
+                "lineWidth": 2,
+                "showPoints": "never"
+              }
+            },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum by (source, result) (rate(board_query_projection_events_total{namespace=\"devboard\"}[$__rate_interval]))",
+              "range": true,
+              "refId": "A",
+              "legendFormat": "{{source}} {{result}}"
+            }
+          ],
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 25,
+          "type": "timeseries",
+          "title": "board-query Projection Apply p95",
+          "description": "Time spent applying projection writes to task_views. This catches the class of issue that caused board-query startup trouble.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 8,
+            "x": 8,
+            "y": 44
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 12,
+                "lineWidth": 2,
+                "showPoints": "never"
+              }
+            },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "histogram_quantile(0.95, sum by (source, result, le) (rate(board_query_projection_apply_duration_seconds_bucket{namespace=\"devboard\"}[$__rate_interval])))",
+              "range": true,
+              "refId": "A",
+              "legendFormat": "{{source}} {{result}} p95"
+            }
+          ],
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 26,
+          "type": "stat",
+          "title": "board-query Backfill Size",
+          "description": "Number of tasks loaded by the latest startup backfill.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 4,
+            "x": 16,
+            "y": 44
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "max(board_query_backfill_tasks_total{namespace=\"devboard\"})",
+              "range": true,
+              "refId": "A",
+              "legendFormat": "source tasks"
+            }
+          ],
+          "options": {
+            "colorMode": "background",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "auto",
+            "wideLayout": true
+          }
+        },
+        {
+          "id": 27,
+          "type": "stat",
+          "title": "board-query Backfill Duration",
+          "description": "Latest observed startup backfill duration. This uses histogram sum/count because backfill only runs at process startup.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 4,
+            "x": 20,
+            "y": 44
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s"
+            },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "max(board_query_backfill_duration_seconds_sum{namespace=\"devboard\"} / board_query_backfill_duration_seconds_count{namespace=\"devboard\"})",
+              "range": true,
+              "refId": "A",
+              "legendFormat": "backfill duration"
+            }
+          ],
+          "options": {
+            "colorMode": "background",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "auto",
+            "wideLayout": true
+          }
+        },
+        {
+          "id": 28,
+          "type": "timeseries",
+          "title": "Activity Service",
+          "description": "Activity read API and event-store throughput.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 8,
+            "x": 0,
+            "y": 51
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ops",
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 12,
+                "lineWidth": 2,
+                "showPoints": "never"
+              }
+            },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum(rate(activity_events_stored_total{namespace=\"devboard\"}[$__rate_interval]))",
+              "range": true,
+              "refId": "A",
+              "legendFormat": "events stored"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum by (result) (rate(activity_read_requests_total{namespace=\"devboard\"}[$__rate_interval]))",
+              "range": true,
+              "refId": "B",
+              "legendFormat": "read {{result}}"
+            }
+          ],
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 29,
+          "type": "timeseries",
+          "title": "Activity Store p95",
+          "description": "Time spent storing activity events consumed from RabbitMQ.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 8,
+            "x": 8,
+            "y": 51
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 12,
+                "lineWidth": 2,
+                "showPoints": "never"
+              }
+            },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "histogram_quantile(0.95, sum by (result, le) (rate(activity_event_store_duration_seconds_bucket{namespace=\"devboard\"}[$__rate_interval])))",
+              "range": true,
+              "refId": "A",
+              "legendFormat": "{{result}} p95"
+            }
+          ],
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 30,
+          "type": "timeseries",
+          "title": "Notification Service",
+          "description": "Notification-service consumer, active SSE connections, delivered events, and dropped events.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 8,
+            "x": 16,
+            "y": 51
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 12,
+                "lineWidth": 2,
+                "showPoints": "never"
+              }
+            },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "max(sse_connections_active{namespace=\"devboard\"})",
+              "range": true,
+              "refId": "A",
+              "legendFormat": "active SSE connections"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum(rate(notification_events_received_total{namespace=\"devboard\"}[$__rate_interval]))",
+              "range": true,
+              "refId": "B",
+              "legendFormat": "events received"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum(rate(sse_events_delivered_total{namespace=\"devboard\"}[$__rate_interval]))",
+              "range": true,
+              "refId": "C",
+              "legendFormat": "events delivered"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum(rate(sse_events_dropped_total{namespace=\"devboard\"}[$__rate_interval]))",
+              "range": true,
+              "refId": "D",
+              "legendFormat": "events dropped"
+            }
+          ],
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 31,
+          "type": "timeseries",
+          "title": "search-service Request Outcomes",
+          "description": "Search API outcomes, including authorization and Elasticsearch failures.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 8,
+            "x": 0,
+            "y": 58
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ops",
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 12,
+                "lineWidth": 2,
+                "showPoints": "never"
+              }
+            },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum by (result) (rate(search_service_requests_total{namespace=\"devboard\"}[$__rate_interval]))",
+              "range": true,
+              "refId": "A",
+              "legendFormat": "{{result}}"
+            }
+          ],
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 32,
+          "type": "timeseries",
+          "title": "search-service Query p95",
+          "description": "Time spent executing search queries against Elasticsearch.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 8,
+            "x": 8,
+            "y": 58
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 12,
+                "lineWidth": 2,
+                "showPoints": "never"
+              }
+            },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "histogram_quantile(0.95, sum by (result, le) (rate(search_service_query_duration_seconds_bucket{namespace=\"devboard\"}[$__rate_interval])))",
+              "range": true,
+              "refId": "A",
+              "legendFormat": "{{result}} p95"
+            }
+          ],
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 33,
+          "type": "timeseries",
+          "title": "search-service Index Operations",
+          "description": "Search indexing throughput and indexing latency.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 8,
+            "x": 16,
+            "y": 58
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 12,
+                "lineWidth": 2,
+                "showPoints": "never"
+              }
+            },
+            "overrides": []
           },
           "targets": [
             {
@@ -879,13 +1971,124 @@ data:
               },
               "editorMode": "code",
               "expr": "sum by (operation) (rate(search_service_index_operations_total{namespace=\"devboard\"}[$__rate_interval]))",
-              "legendFormat": "{{operation}}",
               "range": true,
-              "refId": "A"
+              "refId": "A",
+              "legendFormat": "{{operation}}"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "histogram_quantile(0.95, sum by (operation, result, le) (rate(search_service_index_operation_duration_seconds_bucket{namespace=\"devboard\"}[$__rate_interval])))",
+              "range": true,
+              "refId": "B",
+              "legendFormat": "{{operation}} {{result}} p95"
             }
           ],
-          "title": "search-service Index Operations",
-          "type": "timeseries"
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 34,
+          "type": "timeseries",
+          "title": "Trace Pipeline",
+          "description": "Meta-observability for tracing: services -> OTel Collector -> Tempo.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 8,
+            "x": 0,
+            "y": 65
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ops",
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 12,
+                "lineWidth": 2,
+                "showPoints": "never"
+              }
+            },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum(rate(otelcol_receiver_accepted_spans_total{receiver=\"otlp\"}[$__rate_interval])) or sum(rate(otelcol_receiver_accepted_spans{receiver=\"otlp\"}[$__rate_interval]))",
+              "range": true,
+              "refId": "A",
+              "legendFormat": "collector accepted spans"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum(rate(otelcol_exporter_sent_spans_total{exporter=\"otlp/tempo\"}[$__rate_interval])) or sum(rate(otelcol_exporter_sent_spans{exporter=\"otlp/tempo\"}[$__rate_interval]))",
+              "range": true,
+              "refId": "B",
+              "legendFormat": "collector sent spans to Tempo"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum(rate(otelcol_receiver_failed_spans_total{receiver=\"otlp\"}[$__rate_interval])) or sum(rate(otelcol_receiver_failed_spans{receiver=\"otlp\"}[$__rate_interval]))",
+              "range": true,
+              "refId": "C",
+              "legendFormat": "collector failed spans"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum(rate(otelcol_receiver_refused_spans_total{receiver=\"otlp\"}[$__rate_interval])) or sum(rate(otelcol_receiver_refused_spans{receiver=\"otlp\"}[$__rate_interval]))",
+              "range": true,
+              "refId": "D",
+              "legendFormat": "collector refused spans"
+            }
+          ],
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
         }
       ],
       "preload": false,
@@ -895,7 +2098,8 @@ data:
         "devboard",
         "service",
         "istio",
-        "prometheus"
+        "prometheus",
+        "sre"
       ],
       "templating": {
         "list": []
@@ -908,5 +2112,5 @@ data:
       "timezone": "browser",
       "title": "DevBoard Service Overview",
       "uid": "devboard-service-overview",
-      "version": 1
+      "version": 3
     }
