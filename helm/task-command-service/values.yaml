@@ -2,7 +2,7 @@ replicaCount: 1
 image:
   repository: ghcr.io/mitsu3s/devboard-task-command-service
   pullPolicy: IfNotPresent
-  tag: "b3d31a9679de77e6dba5923f2b01cff267ee001d"
+  tag: "4a0ae8e5c3f55ae4b3505332c0c0c45535485f4b"
 service:
   type: ClusterIP
   port: 8080
